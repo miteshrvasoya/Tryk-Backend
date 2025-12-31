@@ -87,11 +87,10 @@ export const handleShopifyOAuthCallback = async (shop: string, code: string) => 
     return { token, shop };
 };
 
-export const register = async (email: string, password: string, fullName: string) => {
+export const register = async (email: string, password: string, fullName: string, website?: string, shopifyStore?: string) => {
 
     console.log("Register called");
 
-    // ... (Previous implementation)
     const hashedPassword = await bcrypt.hash(password, 10);
     const check = await query('SELECT * FROM users WHERE email = $1', [email]);
 
@@ -101,13 +100,52 @@ export const register = async (email: string, password: string, fullName: string
 
     console.log("User not found, creating new user");
 
+    // Start transaction? For simplicity just sequential inserts
     const result = await query(
-        `INSERT INTO users (email, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id, email, full_name`,
+        `INSERT INTO users (email, password_hash, full_name, role) VALUES ($1, $2, $3, 'owner') RETURNING id, email, full_name`,
         [email, hashedPassword, fullName]
     );
+    
+    const user = result.rows[0];
+    const userId = user.id;
 
-    console.log("User registered: ", result.rows[0]);
-    return result.rows[0];
+    console.log("User registered: ", user);
+    
+    // Create Shop if details provided
+    if (website || shopifyStore) {
+        try {
+            const { v4: uuidv4 } = require('uuid');
+            const shopId = uuidv4();
+            
+            // Determine platform and URL
+            let platform = 'generic';
+            let storeUrl = website;
+            let platformStoreId = website;
+            
+            if (shopifyStore) {
+                platform = 'shopify';
+                storeUrl = shopifyStore.startsWith('http') ? shopifyStore : `https://${shopifyStore}`;
+                platformStoreId = shopifyStore.replace('https://', '').replace('http://', '').replace(/\/$/, '');
+            } else if (website) {
+                storeUrl = website.startsWith('http') ? website : `https://${website}`;
+            }
+
+            if (storeUrl) {
+                await query(`
+                    INSERT INTO shops (shop_id, name, website_url, domain, platform, platform_store_id, user_id, onboarding_complete)
+                    VALUES ($1, $2, $3, $3, $4, $5, $6, true)
+                `, [shopId, fullName + "'s Store", storeUrl, platform, platformStoreId, userId]);
+                
+                // Update User's shop_ids (redundant but kept for JWT consistency)
+                 await query('UPDATE users SET shop_ids = $1 WHERE id = $2', [JSON.stringify([shopId]), userId]);
+            }
+        } catch (shopErr) {
+            console.error("Failed to auto-create shop during signup:", shopErr);
+            // Don't fail the registration, just log it
+        }
+    }
+
+    return user;
 };
 
 export const login = async (email: string, password: string) => {
