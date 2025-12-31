@@ -77,6 +77,18 @@ app.get('/health', (req: Request, res: Response) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Debug: Log all registered routes
+  console.log("Registered Routes:");
+  app._router.stack.forEach((r: any) => {
+    if (r.route && r.route.path) {
+      console.log(`[ROUTE] ${Object.keys(r.route.methods).join(',').toUpperCase()} ${r.route.path}`);
+    } else if (r.name === 'router') {
+      // Middleware router (like /api/auth)
+      const pattern = r.regexp.source.replace('^\\', '').replace('\\/?(?=\\/|$)', '').replace('(?=\\/|$)', '');
+      console.log(`[ROUTER] /${pattern}`);
+    }
+  });
 });
 
 export default app;
