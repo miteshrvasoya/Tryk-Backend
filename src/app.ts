@@ -37,6 +37,7 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(morgan('dev'));
+app.use(express.static('public')); // Serve static files (widget.js)
 
 // Routes
 import webhookRoutes from './routes/webhook.routes';
