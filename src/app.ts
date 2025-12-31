@@ -77,6 +77,8 @@ app.get('/health', (req: Request, res: Response) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+
+  console.log("Debugging Routing Issue")
   
   // Debug: Log all registered routes
   console.log("Registered Routes:");
