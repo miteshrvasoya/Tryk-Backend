@@ -20,7 +20,10 @@ export const requestShopifyOAuth = async (shop: string) => {
     // Return the auth URL
     // In a real app we'd construct the URL manually or use the library's beginAuth
     // Simplified manual construction:
-    const redirectUri = process.env.ENVIRONMENT == 'production'? "https://tryk-backend.onrender.com" : "http://localhost:3000" + `/api/auth/oauth/shopify/callback`; // Should be env var
+    // Use standardized BACKEND_URL from environment
+    const backendUrl = process.env.BACKEND_URL || "http://localhost:3000";
+    const redirectUri = `${backendUrl}/api/auth/oauth/shopify/callback`;
+
     const state = 'nonce'; // Should be random
     const url = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=read_products,read_orders&redirect_uri=${redirectUri}&state=${state}`;
     return url;
