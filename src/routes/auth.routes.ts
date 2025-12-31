@@ -147,7 +147,8 @@ router.get('/shopify/callback', async (req, res) => {
             shop_ids: shop_ids 
         });
         
-        res.redirect(`http://localhost:3001/auth/callback?token=${token}&shop=${session.shop}&connected=shopify`);
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+        res.redirect(`${frontendUrl}/auth/callback?token=${token}&shop=${session.shop}&connected=shopify`);
 
     } catch (e: any) {
         console.error("Shopify Callback Error", e);
