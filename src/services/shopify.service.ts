@@ -77,27 +77,58 @@ export const syncProducts = async (shop: string, accessToken: string) => {
     try {
         console.log(`[Shopify Sync] Starting product sync for ${shop}`);
         const session = await getSession(shop, accessToken);
-        const client = getClient(session);
+        // Use GraphQL Client instead of REST
+        const client = new shopify.clients.Graphql({ session });
         
-        // Fetch products from Shopify  
-        const response = await client.get({
-            path: 'products',
-            query: { limit: '50' }, // Adjust as needed
+        // Fetch products via GraphQL
+        const response: any = await client.request(`query {
+            products(first: 50) {
+                edges {
+                    node {
+                        id
+                        title
+                        bodyHtml
+                        images(first: 1) {
+                            edges {
+                                node {
+                                    src: url
+                                }
+                            }
+                        }
+                        variants(first: 1) {
+                            edges {
+                                node {
+                                    price
+                                }
+                            }
+                        }
+                        legacyResourceId
+                    }
+                }
+            }
+        }`);
+
+        console.log("Product Sync Response (GraphQL): ", response)
+        
+        const edges = response.data?.products?.edges || [];
+        const products = edges.map((edge: any) => {
+             const node = edge.node;
+             return {
+                 id: node.legacyResourceId, // Use legacy numeric ID for compatibility
+                 title: node.title,
+                 body_html: node.bodyHtml,
+                 image: { src: node.images?.edges?.[0]?.node?.src || null },
+                 variants: [{ price: node.variants?.edges?.[0]?.node?.price || 0 }]
+             };
         });
 
-        console.log("Product Search Response: ", response)
-        
-        const products = (response.body as any).products || [];
         console.log(`[Shopify Sync] Found ${products.length} products for ${shop}`);
         
         if (products.length === 0) {
             return { synced: 0, message: 'No products found' };
         }
         
-        // Import query function
-        const { query } = await import('../db');
-        
-        // Bulk  insert products into database
+        // Bulk insert products into database
         let syncedCount = 0;
         for (const product of products) {
             try {
