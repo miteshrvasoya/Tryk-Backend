@@ -12,6 +12,7 @@ export class ChatEngineService {
    */
   static async processMessage(shopId: string, customerMessage: string, metadata: any = {}) {
     console.log(`Processing message for shop ${shopId}: ${customerMessage}`);
+    const startTime = Date.now();
     const customerId = metadata.customerId || 'anonymous';
 
     // 0. Find or Create Conversation
@@ -141,9 +142,10 @@ export class ChatEngineService {
     }
 
     // Save Bot Response
+    const responseTime = Date.now() - startTime;
     await query(
-        `INSERT INTO messages (conversation_id, sender, role, content, intent, response_time_ms) VALUES ($1, 'bot', 'assistant', $2, $3, 0)`,
-        [conversationId, responseText, intent]
+        `INSERT INTO messages (conversation_id, sender, role, content, intent, response_time_ms) VALUES ($1, 'bot', 'assistant', $2, $3, $4)`,
+        [conversationId, responseText, intent, responseTime]
     );
 
     // Update Conversation Stats

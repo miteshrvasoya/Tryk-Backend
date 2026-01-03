@@ -25,18 +25,41 @@ export class AnalyticsService {
    * Fetches dashboard metrics for a shop.
    */
   static async getDashboardMetrics(shopId: string, period: string = 'today') {
-    // In a real app, this would query the pre-aggregated analytics_daily table
-    // For now, let's query the live sessions/messages as a fallback
-    const result = await query(`
+    // 1. Basic Counts
+    const counts = await query(`
       SELECT 
         COUNT(*) as total_conversations,
-        SUM(bot_message_count) as total_bot_messages,
-        COUNT(CASE WHEN status = 'escalated' THEN 1 END) as total_escalations
+        COALESCE(SUM(bot_message_count), 0) as questions_answered,
+        COALESCE(AVG(resolved_in_seconds), 0) as avg_resolution_time
       FROM conversations
       WHERE shop_id = $1
     `, [shopId]);
 
-    return result.rows[0];
+    // 2. Avg Bot Response Time (from Messages)
+    const timing = await query(`
+       SELECT AVG(response_time_ms) as avg_response_ms
+       FROM messages m
+       JOIN conversations c ON m.conversation_id = c.id
+       WHERE c.shop_id = $1 
+       AND m.role = 'assistant' 
+       AND m.response_time_ms > 0
+    `, [shopId]);
+
+    const row = counts.rows[0];
+    const avgMs = parseFloat(timing.rows[0]?.avg_response_ms || 0);
+
+    const questionsAnswered = parseInt(row.questions_answered) || 0;
+    
+    // Estimate: 3 minutes saved per question answered
+    const savedHours = (questionsAnswered * 3) / 60;
+
+    return {
+        totalConversations: parseInt(row.total_conversations) || 0,
+        questionsAnswered,
+        avgResponseTime: Math.round(avgMs) + 'ms',
+        savedHours: savedHours.toFixed(1),
+        engagementRate: 'Active' // Placeholder or calculate
+    };
   }
 }
 

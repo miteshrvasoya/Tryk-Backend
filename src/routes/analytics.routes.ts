@@ -4,21 +4,18 @@ import { authenticateToken } from '../middleware/auth.middleware';
 
 const router = Router();
 
+import { AnalyticsService } from '../services/analytics.service';
+
 router.get('/:storeId/analytics', authenticateToken, async (req, res) => {
     const { storeId } = req.params;
     
-    // In real implementation, these would be robust SQL queries on 'conversations' and 'messages'
-    
-    // 1. Overview Stats
-    const stats = {
-        totalConversations: 120,
-        aiHandledCount: 100,
-        escalatedCount: 20,
-        avgConfidence: 0.92,
-        messagesProcessed: 543
-    };
-    
-    res.json(stats);
+    try {
+        const stats = await AnalyticsService.getDashboardMetrics(storeId);
+        res.json(stats);
+    } catch (error: any) {
+        console.error('Dashboard Analytics Error:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 router.get('/:storeId/analytics/volume', authenticateToken, async (req, res) => {

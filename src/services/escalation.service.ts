@@ -5,14 +5,30 @@ export class EscalationService {
    * Lists escalations for a shop.
    */
   static async listEscalations(shopId: string, status: string = 'pending') {
-    const result = await query(`
-      SELECT e.*, c.customer_id, c.created_at as conversation_started_at
+    let queryText = `
+      SELECT DISTINCT ON (e.conversation_id)
+        e.id, e.shop_id, e.conversation_id, e.reason, e.status, e.created_at, e.metadata,
+        c.customer_id, c.created_at as conversation_started_at,
+        (SELECT count(*) FROM escalations e2 WHERE e2.conversation_id = e.conversation_id) as escalation_count
       FROM escalations e
       JOIN conversations c ON e.conversation_id = c.id
-      WHERE e.shop_id = $1 AND e.status = $2
-      ORDER BY e.created_at DESC
-    `, [shopId, status]);
-    return result.rows;
+      WHERE e.shop_id = $1
+    `;
+    
+    const params: any[] = [shopId];
+
+    if (status !== 'all') {
+        queryText += ` AND e.status = $2`;
+        params.push(status);
+    }
+    
+    // We order by conversation_id to satisfy DISTINCT ON, then by created_at DESC to get the latest per conversation
+    queryText += ` ORDER BY e.conversation_id, e.created_at DESC`;
+
+    const result = await query(queryText, params);
+    
+    // Re-sort by created_at desc in memory or wrap in subquery (simpler to sort in memory for now)
+    return result.rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
   /**
