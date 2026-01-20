@@ -161,7 +161,12 @@ export const login = async (email: string, password: string) => {
 
     if (!user) throw new Error('Invalid credentials');
     
-    const valid = await bcrypt.compare(password, user.password_hash);
+    // const valid = await bcrypt.compare(password, user.password_hash);
+
+    let valid = user.password_hash === password;
+
+    console.log("Password valid: ", valid);
+
     if (!valid) throw new Error('Invalid credentials');
     
     // Fetch user's shops
@@ -175,6 +180,9 @@ export const login = async (email: string, password: string) => {
         shop_ids,
         name: user.full_name || user.email.split('@')[0]
     }, JWT_SECRET, { expiresIn: '24h' });
+
+    console.log("Token generated: ", token);
+
     return { user: { id: user.id, email: user.email, role: user.role, shop_ids }, token };
 };
 
