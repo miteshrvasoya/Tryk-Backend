@@ -180,9 +180,26 @@ router.get('/me', authenticateToken, async (req, res) => {
         
         const user = userResult.rows[0];
         
-        // Fetch shops associated with user
-        const shopsResult = await query('SELECT shop_id FROM shops WHERE user_id = $1', [userId]);
-        user.shop_ids = shopsResult.rows.map((row: any) => row.shop_id);
+        // Fetch detailed shops associated with user
+        const shopsResult = await query(`
+            SELECT shop_id, name, domain, website_url, platform, onboarding_complete, created_at 
+            FROM shops 
+            WHERE user_id = $1
+        `, [userId]);
+        
+        // Helper to format shop strings if stored as JSON or just pass through
+        const shops = shopsResult.rows.map((row: any) => ({
+            id: row.shop_id,
+            name: row.name,
+            domain: row.domain,
+            website: row.website_url,
+            platform: row.platform,
+            setupCompleted: row.onboarding_complete,
+            createdAt: row.created_at
+        }));
+
+        user.shop_ids = shops.map((s: any) => s.id);
+        user.shops = shops; // Add full shop objects
         
         res.json(user);
     } catch (error) {
