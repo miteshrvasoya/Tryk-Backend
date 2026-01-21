@@ -3,9 +3,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
+import passport from 'passport';
 import dotenv from 'dotenv';
+import { initializePassport } from './config/passport';
 
 dotenv.config();
+
+// Initialize Passport
+initializePassport();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -55,9 +60,14 @@ import templateRoutes from './routes/template.routes';
 import escalationRoutes from './routes/escalation.routes';
 import './services/faq-scan.service'; // Start workers
 import './services/analytics.service'; // Start workers
+import oauthRoutes from './routes/oauth.routes';
+
+// Initialize Passport middleware
+app.use(passport.initialize());
 
 app.use('/webhook', webhookRoutes);
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', oauthRoutes); // OAuth routes
+app.use('/api/auth', authRoutes); // Regular auth routes
 app.use('/api/stores', storeRoutes);
 app.use('/api/stores', faqRoutes); // Overlaps pattern, but faq routes are /:storeId/faqs
 app.use('/api/faq', faqV2Routes);

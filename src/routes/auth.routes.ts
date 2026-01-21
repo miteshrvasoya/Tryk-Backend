@@ -173,12 +173,16 @@ router.get('/me', authenticateToken, async (req, res) => {
         
         // Fetch fresh user data
         const userResult = await query('SELECT id, email, full_name, role FROM users WHERE id = $1', [userId]);
+
+        console.log("User fetched:", userResult.rows);
         
         if (userResult.rows.length === 0) {
              return res.status(404).json({ error: 'User not found' });
         }
         
         const user = userResult.rows[0];
+
+        console.log("User fetched-2:", user);
         
         // Fetch detailed shops associated with user
         const shopsResult = await query(`
@@ -186,6 +190,8 @@ router.get('/me', authenticateToken, async (req, res) => {
             FROM shops 
             WHERE user_id = $1
         `, [userId]);
+
+        console.log("Shops fetched:", shopsResult.rows);
         
         // Helper to format shop strings if stored as JSON or just pass through
         const shops = shopsResult.rows.map((row: any) => ({
@@ -198,8 +204,12 @@ router.get('/me', authenticateToken, async (req, res) => {
             createdAt: row.created_at
         }));
 
+        console.log("Shops fetched-2:", shops);
+
         user.shop_ids = shops.map((s: any) => s.id);
         user.shops = shops; // Add full shop objects
+        
+        console.log("User fetched-3:", user);
         
         res.json(user);
     } catch (error) {
