@@ -3,6 +3,10 @@ import * as authService from '../services/auth.service';
 import { generateAuthUrl, validateAuthCallback, getShopData } from '../services/shopify.service';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { query } from '../db';
+import { encrypt } from '../utils/crypto';
+// ... other imports
+
+
 
 const router = Router();
 

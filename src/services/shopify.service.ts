@@ -1,5 +1,52 @@
 import '@shopify/shopify-api/adapters/node';
 import { shopifyApi, LATEST_API_VERSION, Session } from '@shopify/shopify-api';
+import { decrypt } from '../utils/crypto';
+
+// Rate Limiter Implementation (Simple Queue)
+class RateLimiter {
+    private queue: (() => Promise<void>)[] = [];
+    private processing = false;
+    private lastCallTime = 0;
+    private delayMs = 500; // 2 requests per second (safe limit)
+
+    async add<T>(fn: () => Promise<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
+            this.queue.push(async () => {
+                try {
+                    const result = await fn();
+                    resolve(result);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+            this.process();
+        });
+    }
+
+    private async process() {
+        if (this.processing || this.queue.length === 0) return;
+        this.processing = true;
+
+        while (this.queue.length > 0) {
+            const now = Date.now();
+            const timeSinceLast = now - this.lastCallTime;
+            
+            if (timeSinceLast < this.delayMs) {
+                await new Promise(r => setTimeout(r, this.delayMs - timeSinceLast));
+            }
+
+            const task = this.queue.shift();
+            if (task) {
+                this.lastCallTime = Date.now();
+                await task();
+            }
+        }
+
+        this.processing = false;
+    }
+}
+
+const shopifyLimiter = new RateLimiter();
 
 const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
 const urlObj = new URL(backendUrl);
@@ -39,20 +86,33 @@ export const validateAuthCallback = async (req: any, res: any) => {
 };
 
 export const getShopData = async (session: Session) => {
-  const client = new shopify.clients.Rest({ session });
-  const data: any = await client.get({
-    path: 'shop',
+  return shopifyLimiter.add(async () => {
+      const client = new shopify.clients.Rest({ session });
+      const data: any = await client.get({
+        path: 'shop',
+      });
+      return data.body.shop;
   });
-  return data.body.shop;
 };
 
 export const getSession = async (shop: string, accessToken: string) => {
+    // START DECRYPTION CHANGE
+    let decryptedToken = accessToken;
+    try {
+        if (accessToken.includes(':')) {
+            decryptedToken = decrypt(accessToken);
+        }
+    } catch (e) {
+        console.warn(`Failed to decrypt token for ${shop}, using as-is.`);
+    }
+    // END DECRYPTION CHANGE
+
     const session = new Session({
         id: shop,
         shop: shop,
         state: 'state',
         isOnline: false,
-        accessToken: accessToken
+        accessToken: decryptedToken
     });
     return session;
 }
@@ -63,14 +123,14 @@ export const getClient = (session: Session) => {
 
 export const getOrder = async (shop: string, accessToken: string, orderId: number) => {
     const session = await getSession(shop, accessToken);
-    const client = getClient(session);
     
-    // In real app, we need to handle potential errors
-    const response = await client.get({
-        path: `orders/${orderId}`,
+    return shopifyLimiter.add(async () => {
+        const client = getClient(session);
+        const response = await client.get({
+            path: `orders/${orderId}`,
+        });
+        return response.body.order; 
     });
-    
-    return response.body.order; // Type adjustment needed
 };
 
 export const syncProducts = async (shop: string, accessToken: string) => {
@@ -81,7 +141,8 @@ export const syncProducts = async (shop: string, accessToken: string) => {
         const client = new shopify.clients.Graphql({ session });
         
         // Fetch products via GraphQL
-        const response: any = await client.request(`query {
+        // Rate Limited
+        const response: any = await shopifyLimiter.add(async () => client.request(`query {
             products(first: 50) {
                 edges {
                     node {
@@ -106,7 +167,7 @@ export const syncProducts = async (shop: string, accessToken: string) => {
                     }
                 }
             }
-        }`);
+        }`));
 
         console.log("Product Sync Response (GraphQL): ", response)
         
@@ -154,10 +215,11 @@ export const syncOrders = async (shop: string, accessToken: string) => {
         const client = getClient(session);
         
         // Fetch orders from Shopify
-        const response = await client.get({
+        // Rate Limited
+        const response = await shopifyLimiter.add(async () => client.get({
             path: 'orders',
             query: { status: 'any', limit: '50' },
-        });
+        }));
         
         const orders = (response.body as any).orders || [];
         console.log(`[Shopify Sync] Found ${orders.length} orders for ${shop}`);
@@ -233,7 +295,7 @@ export const registerWebhooks = async (shop: string, accessToken: string) => {
 
     for (const topic of topics) {
         try {
-            await client.request(`mutation {
+            await shopifyLimiter.add(async () => client.request(`mutation {
                     webhookSubscriptionCreate(
                         topic: ${topic},
                         webhookSubscription: {
@@ -249,7 +311,7 @@ export const registerWebhooks = async (shop: string, accessToken: string) => {
                             id
                         }
                     }
-                }`);
+                }`));
             console.log(`Registered ${topic} for ${shop}`);
         } catch (error) {
             console.error(`Failed to register ${topic} for ${shop}`, error);
@@ -368,11 +430,11 @@ export const searchProducts = async (shopId: string, searchQuery: string) => {
                 const accessToken = shopRes.rows[0].access_token;
                 const session = await getSession(shopId, accessToken);
 
-                console.log("Session: ", session);
+                // console.log("Session: ", session); // REMOVED FOR SECURITY
 
                 const client = new shopify.clients.Graphql({ session });
 
-                console.log("Client: ", client);
+                // console.log("Client: ", client); // REMOVED FOR SECURITY
                 
                 const response = await client.request(`query {
                      products(first: 5, query: "title:*${searchQuery}*") {
