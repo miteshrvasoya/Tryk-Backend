@@ -49,9 +49,10 @@ faqScanQueue.process(async (job) => {
 
     console.log(`Worker: Starting scan for job ${jobId} (${websiteUrl})...`);
 
+    // 1. Regular Crawl (Scrape Content)
     const scraped = await CrawlerService.scanWebsite(websiteUrl);
 
-    // Save to faq_drafts
+    // Save Crawled Content to faq_drafts
     for (const content of scraped.content) {
       if (content.length < 50) continue;
       
@@ -60,6 +61,22 @@ faqScanQueue.process(async (job) => {
         VALUES ($1, $2, $3, $4, $5, 'pending_review')
       `, [jobId, shopId, "Extracted Content", content, scraped.url]);
     }
+
+    // 2. Policy Scraping (NEW)
+    const { PolicyScraperService } = await import('./policy-scraper.service');
+    const policies = await PolicyScraperService.scrapePolicies(websiteUrl);
+
+    for (const policy of policies) {
+        // We'll store policies as "Answer" and the Policy Type as "Question" for now, 
+        // effectively treating them as pre-approved FAQs or reference docs.
+        // We might want a 'source_type' column later, but for MVP drafts work fine.
+        await query(`
+            INSERT INTO faq_drafts (job_id, shop_id, question, answer, source_url, status)
+            VALUES ($1, $2, $3, $4, $5, 'approved') 
+        `, [jobId, shopId, policy.type, policy.content, policy.url]);
+    }
+    
+    console.log(`Worker: Saved ${policies.length} policy pages.`);
 
     // Update DB status to completed
     await query('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
