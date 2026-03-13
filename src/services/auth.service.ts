@@ -87,7 +87,7 @@ export const handleShopifyOAuthCallback = async (shop: string, code: string) => 
     return { token, shop };
 };
 
-export const register = async (email: string, password: string, fullName: string, website?: string, shopifyStore?: string) => {
+export const register = async (email: string, password: string, fullName: string, businessName?: string, businessType?: string, website?: string, shopifyStore?: string) => {
 
     console.log("Register called");
 
@@ -134,7 +134,7 @@ export const register = async (email: string, password: string, fullName: string
                 await query(`
                     INSERT INTO shops (shop_id, name, website_url, domain, platform, platform_store_id, user_id, onboarding_complete)
                     VALUES ($1, $2, $3, $3, $4, $5, $6, true)
-                `, [shopId, fullName + "'s Store", storeUrl, platform, platformStoreId, userId]);
+                `, [shopId, businessName || fullName + "'s Store", storeUrl, platform, platformStoreId, userId]);
                 
                 // Update User's shop_ids (redundant but kept for JWT consistency)
                  await query('UPDATE users SET shop_ids = $1 WHERE id = $2', [JSON.stringify([shopId]), userId]);
@@ -161,9 +161,7 @@ export const login = async (email: string, password: string) => {
 
     if (!user) throw new Error('Invalid credentials');
     
-    // const valid = await bcrypt.compare(password, user.password_hash);
-
-    let valid = user.password_hash === password;
+    const valid = await bcrypt.compare(password, user.password_hash);
 
     console.log("Password valid: ", valid);
 

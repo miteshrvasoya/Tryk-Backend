@@ -14,8 +14,8 @@ const router = Router();
 
 router.post('/signup', async (req, res) => {
     try {
-        const { email, password, fullName, website, shopifyStore } = req.body;
-        const user = await authService.register(email, password, fullName, website, shopifyStore);
+        const { email, password, fullName, businessName, businessType, website, shopifyStore } = req.body;
+        const user = await authService.register(email, password, fullName, businessName, businessType, website, shopifyStore);
         res.status(201).json(user);
     } catch (error: any) {
         res.status(400).json({ error: error.message });
