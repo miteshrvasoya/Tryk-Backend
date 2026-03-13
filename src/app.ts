@@ -58,6 +58,7 @@ import faqV2Routes from './routes/faq-v2.routes';
 import widgetRoutes from './routes/widget.routes';
 import templateRoutes from './routes/template.routes';
 import escalationRoutes from './routes/escalation.routes';
+import kbRoutes from './routes/kb.routes';
 import './services/faq-scan.service'; // Start workers
 import './services/analytics.service'; // Start workers
 import oauthRoutes from './routes/oauth.routes';
@@ -73,6 +74,7 @@ app.use('/api/stores', faqRoutes); // Overlaps pattern, but faq routes are /:sto
 app.use('/api/faq', faqV2Routes);
 app.use('/api/widget', widgetRoutes);
 app.use('/api/templates', templateRoutes);
+app.use('/api/kb', kbRoutes);
 app.use('/api/escalations', escalationRoutes);
 app.use('/api/stores', settingsRoutes); 
 app.use('/api/chat', chatRoutes);
