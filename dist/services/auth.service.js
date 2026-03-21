@@ -82,10 +82,11 @@ const handleShopifyOAuthCallback = async (shop, code) => {
 };
 exports.handleShopifyOAuthCallback = handleShopifyOAuthCallback;
 const register = async (email, password, fullName, businessName, businessType, website, shopifyStore) => {
-    console.log("Register called");
+    console.log("Register called with email:", email);
     const hashedPassword = await bcryptjs_1.default.hash(password, 10);
-    const check = await (0, db_1.query)('SELECT * FROM users WHERE email = $1', [email]);
-    console.log("User found: ", check.rows.length);
+    // Use case-insensitive email comparison
+    const check = await (0, db_1.query)('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
+    console.log("Existing user found: ", check.rows.length);
     if (check.rows.length > 0)
         throw new Error('User already exists');
     console.log("User not found, creating new user");
@@ -129,9 +130,9 @@ const register = async (email, password, fullName, businessName, businessType, w
 };
 exports.register = register;
 const login = async (email, password) => {
-    console.log("Login called asdadsad");
-    // ... (Previous implementation)
-    const result = await (0, db_1.query)('SELECT * FROM users WHERE email = $1', [email]);
+    console.log("Login called with email:", email);
+    // Use case-insensitive email comparison
+    const result = await (0, db_1.query)('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     const user = result.rows[0];
     console.log("User found: ", user);
     if (!user)
@@ -150,12 +151,13 @@ const login = async (email, password) => {
         shop_ids,
         name: user.full_name || user.email.split('@')[0]
     }, JWT_SECRET, { expiresIn: '24h' });
-    console.log("Token generated: ", token);
+    console.log("Token generated successfully");
     return { user: { id: user.id, email: user.email, role: user.role, shop_ids }, token };
 };
 exports.login = login;
 const adminLogin = async (email, password) => {
-    const result = await (0, db_1.query)('SELECT * FROM users WHERE email = $1', [email]);
+    // Use case-insensitive email comparison
+    const result = await (0, db_1.query)('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     const user = result.rows[0];
     if (!user)
         throw new Error('Invalid credentials');

@@ -89,12 +89,13 @@ export const handleShopifyOAuthCallback = async (shop: string, code: string) => 
 
 export const register = async (email: string, password: string, fullName: string, businessName?: string, businessType?: string, website?: string, shopifyStore?: string) => {
 
-    console.log("Register called");
+    console.log("Register called with email:", email);
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const check = await query('SELECT * FROM users WHERE email = $1', [email]);
+    // Use case-insensitive email comparison
+    const check = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
 
-    console.log("User found: ", check.rows.length);
+    console.log("Existing user found: ", check.rows.length);
 
     if (check.rows.length > 0) throw new Error('User already exists');
 
@@ -150,12 +151,11 @@ export const register = async (email: string, password: string, fullName: string
 
 export const login = async (email: string, password: string) => {
 
-    console.log("Login called asdadsad");
+    console.log("Login called with email:", email);
     
-    // ... (Previous implementation)
-    const result = await query('SELECT * FROM users WHERE email = $1', [email]);
+    // Use case-insensitive email comparison
+    const result = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     const user = result.rows[0];
-
 
     console.log("User found: ", user);
 
@@ -179,13 +179,14 @@ export const login = async (email: string, password: string) => {
         name: user.full_name || user.email.split('@')[0]
     }, JWT_SECRET, { expiresIn: '24h' });
 
-    console.log("Token generated: ", token);
+    console.log("Token generated successfully");
 
     return { user: { id: user.id, email: user.email, role: user.role, shop_ids }, token };
 };
 
 export const adminLogin = async (email: string, password: string) => {
-    const result = await query('SELECT * FROM users WHERE email = $1', [email]);
+    // Use case-insensitive email comparison
+    const result = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     const user = result.rows[0];
     if (!user) throw new Error('Invalid credentials');
     
