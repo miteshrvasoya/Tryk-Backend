@@ -33,7 +33,7 @@ export class IntentClassifierService {
     shipping_policy: {
       patterns: [
         /\b(shipping|delivery|ship|deliver|transit|package)\s+(policy|information|info|details|how)\b/i,
-        /\b(how\s+long\s+(does\s+)?shipping|when\s+will\s+(i\s+)?(receive|get)\b/i,
+        /\b(how\s+long\s+(does\s+)?shipping|when\s+will\s+(i\s+)?(receive|get))\b/i,
         /\b(shipping\s+cost|delivery\s+fee|shipping\s+time)\b/i
       ],
       keywords: ['shipping', 'delivery', 'ship', 'deliver', 'transit', 'package'],

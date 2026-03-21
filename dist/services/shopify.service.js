@@ -36,12 +36,57 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.searchProducts = exports.findOrderByNumber = exports.registerWebhooks = exports.syncOrders = exports.syncProducts = exports.getOrder = exports.getClient = exports.getSession = exports.getShopData = exports.validateAuthCallback = exports.generateAuthUrl = void 0;
 require("@shopify/shopify-api/adapters/node");
 const shopify_api_1 = require("@shopify/shopify-api");
+const crypto_1 = require("../utils/crypto");
+// Rate Limiter Implementation (Simple Queue)
+class RateLimiter {
+    constructor() {
+        this.queue = [];
+        this.processing = false;
+        this.lastCallTime = 0;
+        this.delayMs = 500; // 2 requests per second (safe limit)
+    }
+    async add(fn) {
+        return new Promise((resolve, reject) => {
+            this.queue.push(async () => {
+                try {
+                    const result = await fn();
+                    resolve(result);
+                }
+                catch (e) {
+                    reject(e);
+                }
+            });
+            this.process();
+        });
+    }
+    async process() {
+        if (this.processing || this.queue.length === 0)
+            return;
+        this.processing = true;
+        while (this.queue.length > 0) {
+            const now = Date.now();
+            const timeSinceLast = now - this.lastCallTime;
+            if (timeSinceLast < this.delayMs) {
+                await new Promise(r => setTimeout(r, this.delayMs - timeSinceLast));
+            }
+            const task = this.queue.shift();
+            if (task) {
+                this.lastCallTime = Date.now();
+                await task();
+            }
+        }
+        this.processing = false;
+    }
+}
+const shopifyLimiter = new RateLimiter();
+const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+const urlObj = new URL(backendUrl);
 const shopify = (0, shopify_api_1.shopifyApi)({
     apiKey: process.env.SHOPIFY_API_KEY,
     apiSecretKey: process.env.SHOPIFY_API_SECRET || '',
     scopes: process.env.SHOPIFY_SCOPES ? process.env.SHOPIFY_SCOPES.split(',') : ['read_orders', 'read_products', 'read_inventory'],
-    hostName: process.env.HOST_NAME || 'localhost:3000',
-    hostScheme: 'http', // Force HTTP for local development
+    hostName: urlObj.host, // e.g. 'localhost:3000' or 'tryk-backend.onrender.com'
+    hostScheme: urlObj.protocol.replace(':', ''),
     apiVersion: shopify_api_1.LATEST_API_VERSION,
     isEmbeddedApp: false,
     useOnlineTokens: false,
@@ -71,20 +116,33 @@ const validateAuthCallback = async (req, res) => {
 };
 exports.validateAuthCallback = validateAuthCallback;
 const getShopData = async (session) => {
-    const client = new shopify.clients.Rest({ session });
-    const data = await client.get({
-        path: 'shop',
+    return shopifyLimiter.add(async () => {
+        const client = new shopify.clients.Rest({ session });
+        const data = await client.get({
+            path: 'shop',
+        });
+        return data.body.shop;
     });
-    return data.body.shop;
 };
 exports.getShopData = getShopData;
 const getSession = async (shop, accessToken) => {
+    // START DECRYPTION CHANGE
+    let decryptedToken = accessToken;
+    try {
+        if (accessToken.includes(':')) {
+            decryptedToken = (0, crypto_1.decrypt)(accessToken);
+        }
+    }
+    catch (e) {
+        console.warn(`Failed to decrypt token for ${shop}, using as-is.`);
+    }
+    // END DECRYPTION CHANGE
     const session = new shopify_api_1.Session({
         id: shop,
         shop: shop,
         state: 'state',
         isOnline: false,
-        accessToken: accessToken
+        accessToken: decryptedToken
     });
     return session;
 };
@@ -95,33 +153,66 @@ const getClient = (session) => {
 exports.getClient = getClient;
 const getOrder = async (shop, accessToken, orderId) => {
     const session = await (0, exports.getSession)(shop, accessToken);
-    const client = (0, exports.getClient)(session);
-    // In real app, we need to handle potential errors
-    const response = await client.get({
-        path: `orders/${orderId}`,
+    return shopifyLimiter.add(async () => {
+        const client = (0, exports.getClient)(session);
+        const response = await client.get({
+            path: `orders/${orderId}`,
+        });
+        return response.body.order;
     });
-    return response.body.order; // Type adjustment needed
 };
 exports.getOrder = getOrder;
 const syncProducts = async (shop, accessToken) => {
     try {
         console.log(`[Shopify Sync] Starting product sync for ${shop}`);
         const session = await (0, exports.getSession)(shop, accessToken);
-        const client = (0, exports.getClient)(session);
-        // Fetch products from Shopify  
-        const response = await client.get({
-            path: 'products',
-            query: { limit: '50' }, // Adjust as needed
+        // Use GraphQL Client instead of REST
+        const client = new shopify.clients.Graphql({ session });
+        // Fetch products via GraphQL
+        // Rate Limited
+        const response = await shopifyLimiter.add(async () => client.request(`query {
+            products(first: 50) {
+                edges {
+                    node {
+                        id
+                        title
+                        bodyHtml
+                        images(first: 1) {
+                            edges {
+                                node {
+                                    src: url
+                                }
+                            }
+                        }
+                        variants(first: 1) {
+                            edges {
+                                node {
+                                    price
+                                }
+                            }
+                        }
+                        legacyResourceId
+                    }
+                }
+            }
+        }`));
+        console.log("Product Sync Response (GraphQL): ", response);
+        const edges = response.data?.products?.edges || [];
+        const products = edges.map((edge) => {
+            const node = edge.node;
+            return {
+                id: node.legacyResourceId, // Use legacy numeric ID for compatibility
+                title: node.title,
+                body_html: node.bodyHtml,
+                image: { src: node.images?.edges?.[0]?.node?.src || null },
+                variants: [{ price: node.variants?.edges?.[0]?.node?.price || 0 }]
+            };
         });
-        console.log("Product Search Response: ", response);
-        const products = response.body.products || [];
         console.log(`[Shopify Sync] Found ${products.length} products for ${shop}`);
         if (products.length === 0) {
             return { synced: 0, message: 'No products found' };
         }
-        // Import query function
-        const { query } = await Promise.resolve().then(() => __importStar(require('../db')));
-        // Bulk  insert products into database
+        // Bulk insert products into database
         let syncedCount = 0;
         for (const product of products) {
             try {
@@ -147,10 +238,11 @@ const syncOrders = async (shop, accessToken) => {
         const session = await (0, exports.getSession)(shop, accessToken);
         const client = (0, exports.getClient)(session);
         // Fetch orders from Shopify
-        const response = await client.get({
+        // Rate Limited
+        const response = await shopifyLimiter.add(async () => client.get({
             path: 'orders',
             query: { status: 'any', limit: '50' },
-        });
+        }));
         const orders = response.body.orders || [];
         console.log(`[Shopify Sync] Found ${orders.length} orders for ${shop}`);
         if (orders.length === 0) {
@@ -220,7 +312,7 @@ const registerWebhooks = async (shop, accessToken) => {
     const address = 'https://api.tryk.io/webhooks/shopify'; // In prod, this must be reachable
     for (const topic of topics) {
         try {
-            await client.request(`mutation {
+            await shopifyLimiter.add(async () => client.request(`mutation {
                     webhookSubscriptionCreate(
                         topic: ${topic},
                         webhookSubscription: {
@@ -236,7 +328,7 @@ const registerWebhooks = async (shop, accessToken) => {
                             id
                         }
                     }
-                }`);
+                }`));
             console.log(`Registered ${topic} for ${shop}`);
         }
         catch (error) {
@@ -341,9 +433,9 @@ const searchProducts = async (shopId, searchQuery) => {
             if (shopRes.rows.length > 0) {
                 const accessToken = shopRes.rows[0].access_token;
                 const session = await (0, exports.getSession)(shopId, accessToken);
-                console.log("Session: ", session);
+                // console.log("Session: ", session); // REMOVED FOR SECURITY
                 const client = new shopify.clients.Graphql({ session });
-                console.log("Client: ", client);
+                // console.log("Client: ", client); // REMOVED FOR SECURITY
                 const response = await client.request(`query {
                      products(first: 5, query: "title:*${searchQuery}*") {
                        edges {

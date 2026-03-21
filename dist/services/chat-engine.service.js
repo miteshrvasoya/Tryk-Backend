@@ -46,23 +46,32 @@ class ChatEngineService {
      */
     static async processMessage(shopId, customerMessage, metadata = {}) {
         console.log(`Processing message for shop ${shopId}: ${customerMessage}`);
+        const startTime = Date.now();
         const customerId = metadata.customerId || 'anonymous';
         // 0. Find or Create Conversation
-        // In a real app, we'd handle session expiry. For now, get the last active conversation or create new.
         let conversationId;
-        const convResult = await (0, db_1.query)(`SELECT id FROM conversations WHERE shop_id = $1 AND customer_id = $2 AND status = 'active' ORDER BY updated_at DESC LIMIT 1`, [shopId, customerId]);
+        let conversationState = {};
+        const convResult = await (0, db_1.query)(`SELECT id, metadata FROM conversations WHERE shop_id = $1 AND customer_id = $2 AND status = 'active' ORDER BY updated_at DESC LIMIT 1`, [shopId, customerId]);
         if (convResult.rows.length > 0) {
             conversationId = convResult.rows[0].id;
+            conversationState = convResult.rows[0].metadata || {};
         }
         else {
-            const newConv = await (0, db_1.query)(`INSERT INTO conversations (shop_id, customer_id, status) VALUES ($1, $2, 'active') RETURNING id`, [shopId, customerId]);
+            const newConv = await (0, db_1.query)(`INSERT INTO conversations (shop_id, customer_id, status, metadata) VALUES ($1, $2, 'active', '{}') RETURNING id`, [shopId, customerId]);
             conversationId = newConv.rows[0].id;
         }
+        // Fetch History (Last 5 messages)
+        const historyResult = await (0, db_1.query)(`SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 5`, [conversationId]);
+        // Reverse to chronological order for AI
+        const history = historyResult.rows.reverse();
         // Save User Message
         await (0, db_1.query)(`INSERT INTO messages (conversation_id, sender, role, content) VALUES ($1, $2, 'user', $3)`, [conversationId, customerId, customerMessage]);
-        // 1. Intent Detection (Module 2.2)
-        const intent = await this.detectIntent(customerMessage);
-        console.log(`Detected Intent: ${intent}`);
+        // 1. Intent Detection (State Aware)
+        // Check if we are waiting for something
+        const stateCheck = await this.detectIntentWithState(customerMessage, conversationState);
+        let intent = stateCheck.intent;
+        const extractedData = stateCheck.data;
+        console.log(`Detected Intent: ${intent} (State: ${conversationState.state})`);
         // Log received event
         await analytics_service_1.AnalyticsService.logEvent({
             shopId,
@@ -78,6 +87,7 @@ class ChatEngineService {
             const match = customerMessage.match(/#?(\d+)/);
             if (match) {
                 const orderNumber = match[1];
+                conversationState.state = 'IDLE'; // Clear state if we found it
                 const order = await ShopifyService.findOrderByNumber(shopId, orderNumber);
                 if (order) {
                     const friendlyStatus = this.mapFriendlyStatus(order.financial_status, order.fulfillment_status);
@@ -93,10 +103,32 @@ class ChatEngineService {
                 }
             }
             else {
-                context = "System: User asked for order status but did not provide an order number (e.g. #1234).";
+                // We need an order number. Set State.
+                context = "System: User asked for order status but did not provide an order number.";
+                conversationState.state = 'WAITING_FOR_ORDER_NUMBER';
             }
-            isRelevant = true; // Always relevant if specific intent
-            isRelevant = true; // Always relevant if specific intent
+        }
+        // Handle the specific answer case for waiting state
+        else if (intent === 'ORDER_LOOKUP_PROVIDED') {
+            const orderNumber = extractedData.orderNumber;
+            conversationState.state = 'IDLE'; // Clear state
+            const order = await ShopifyService.findOrderByNumber(shopId, orderNumber);
+            if (order) {
+                const friendlyStatus = this.mapFriendlyStatus(order.financial_status, order.fulfillment_status);
+                context = `ORDER DETAILS FOR #${orderNumber}:
+- Status: ${friendlyStatus}
+- Internal Status: ${order.fulfillment_status || 'Unfulfilled'} / ${order.financial_status}
+- Total: ${order.total_price} ${order.currency}
+- Date: ${new Date(order.created_at).toLocaleDateString()}
+`;
+                // Override intent for downstream logic
+                intent = 'ORDER_LOOKUP';
+            }
+            else {
+                context = `System: Order #${orderNumber} not found in our records.`;
+                intent = 'ORDER_LOOKUP';
+            }
+            isRelevant = true;
         }
         else if (intent === 'PRODUCT_QUERY') {
             const products = await ShopifyService.searchProducts(shopId, customerMessage);
@@ -125,7 +157,8 @@ class ChatEngineService {
         if (confidence >= 60 && isRelevant) {
             // 5. Generate Response (only if relevant)
             // 5. Generate Response (only if relevant)
-            responseText = await this.generateAIResponse(shopId, customerMessage, context, intent);
+            // 5. Generate Response (only if relevant) with History
+            responseText = await this.generateAIResponse(shopId, customerMessage, context, intent, history);
             // If AI indicates it has no answer (from context check)
             if (responseText === 'message_not_found') {
                 escalated = true;
@@ -155,14 +188,16 @@ class ChatEngineService {
             });
         }
         // Save Bot Response
-        await (0, db_1.query)(`INSERT INTO messages (conversation_id, sender, role, content, intent, response_time_ms) VALUES ($1, 'bot', 'assistant', $2, $3, 0)`, [conversationId, responseText, intent]);
+        const responseTime = Date.now() - startTime;
+        await (0, db_1.query)(`INSERT INTO messages (conversation_id, sender, role, content, intent, response_time_ms) VALUES ($1, 'bot', 'assistant', $2, $3, $4)`, [conversationId, responseText, intent, responseTime]);
         // Update Conversation Stats
         await (0, db_1.query)(`UPDATE conversations 
          SET message_count = message_count + 2, 
              updated_at = NOW(),
              bot_message_count = bot_message_count + 1,
-             human_message_count = human_message_count + 1
-         WHERE id = $1`, [conversationId]);
+             human_message_count = human_message_count + 1,
+             metadata = $2
+         WHERE id = $1`, [conversationId, conversationState]);
         return {
             response: responseText,
             confidence,
@@ -172,23 +207,41 @@ class ChatEngineService {
         };
     }
     static async detectIntent(message) {
-        // Simple logic for now (Module 2.2 mentions prompt-based NLP)
+        // Deprecated in favor of detectIntentWithState
+        return (await this.detectIntentWithState(message, {})).intent;
+    }
+    static async detectIntentWithState(message, state) {
         const lowers = message.toLowerCase();
+        // 1. Check State-Based Intent
+        if (state.state === 'WAITING_FOR_ORDER_NUMBER') {
+            // If message looks like a number (1234, #1234, order 1234)
+            const numMatch = message.match(/\b\d{4,}\b/); // At least 4 digits
+            if (numMatch) {
+                return { intent: 'ORDER_LOOKUP_PROVIDED', data: { orderNumber: numMatch[0] } };
+            }
+            // If user says "cancel" or something unrelated, we fall through to normal detection
+            // checking normal intents below might catch "cancel" as POLICY
+        }
+        // 2. Normal Detection
         // Check for Order Lookup patterns: "#1234" or "order 1234"
-        if (message.match(/#\d+/) || lowers.match(/order\s*#?\s*\d+/))
-            return 'ORDER_LOOKUP';
+        const orderMatch = message.match(/#(\d+)/) || lowers.match(/order\s*#?\s*(\d+)/);
+        if (orderMatch) {
+            // If they provided the number, it's a lookup
+            // We extract it here but simpler to just return intent and let main logic re-parse or return data
+            return { intent: 'ORDER_LOOKUP' };
+        }
         // Product Queries
         if (lowers.match(/\b(price|cost|how much|buy|sell|have|stock|looking for|search)\b/) || lowers.includes('do you have'))
-            return 'PRODUCT_QUERY';
+            return { intent: 'PRODUCT_QUERY' };
         if (lowers.includes('order') || lowers.includes('track') || lowers.includes('where is'))
-            return 'ORDER_STATUS';
+            return { intent: 'ORDER_STATUS' }; // General status inquiry
         if (lowers.includes('refund') || lowers.includes('return') || lowers.includes('cancel'))
-            return 'POLICY';
+            return { intent: 'POLICY' };
         if (lowers.includes('stock') || lowers.includes('available') || lowers.includes('price'))
-            return 'INVENTORY';
+            return { intent: 'INVENTORY' };
         if (lowers.match(/\b(hi|hello|hey|greetings)\b/))
-            return 'GREETING';
-        return 'GENERAL';
+            return { intent: 'GREETING' };
+        return { intent: 'GENERAL' };
     }
     static async searchFAQs(shopId, message) {
         // Advanced Search: PG Full Text Search
@@ -239,7 +292,7 @@ class ChatEngineService {
             base += 10;
         return base;
     }
-    static async generateAIResponse(shopId, message, context, intent) {
+    static async generateAIResponse(shopId, message, context, intent, history = []) {
         try {
             // 1. Fetch Shop Name for Persona
             // We use shop_id (domain) as the name since we don't store a display name yet
@@ -251,7 +304,7 @@ class ChatEngineService {
             }
             // 3. Generate Response
             // Note: We pass "No specific FAQ found" as context if it's empty but template exists
-            return await ai_service_1.AIService.generateCustomerResponse(shopName, message, context || "No specific FAQ found.", template);
+            return await ai_service_1.AIService.generateCustomerResponse(shopName, message, context || "No specific FAQ found.", template, history);
         }
         catch (e) {
             console.error("AI Generation Failed:", e);

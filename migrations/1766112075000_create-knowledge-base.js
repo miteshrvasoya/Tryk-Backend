@@ -3,11 +3,18 @@
 exports.shorthands = undefined;
 
 exports.up = pgm => {
+  // Try to enable pgvector extension, but don't fail if it's not available
   pgm.sql(`
-    -- Enable pgvector extension
-    CREATE EXTENSION IF NOT EXISTS vector;
+    DO $$
+    BEGIN
+        CREATE EXTENSION IF NOT EXISTS vector;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'pgvector extension not available, using TEXT for embeddings';
+    END $$;
+  `);
 
-    -- Knowledge Base Documents Table
+  // Check if vector extension is available
+  pgm.sql(`
     CREATE TABLE IF NOT EXISTS kb_documents (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       shop_id VARCHAR(255) NOT NULL REFERENCES shops(shop_id),
@@ -15,7 +22,7 @@ exports.up = pgm => {
       source_url TEXT,
       title TEXT,
       content TEXT NOT NULL,
-      embedding VECTOR(1536),
+      embedding TEXT, -- Store as TEXT if vector extension not available
       token_count INT,
       metadata JSONB DEFAULT '{}',
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -25,11 +32,20 @@ exports.up = pgm => {
     -- Indexes for performance
     CREATE INDEX idx_kb_shop ON kb_documents(shop_id);
     CREATE INDEX idx_kb_shop_source ON kb_documents(shop_id, source_type);
-    CREATE INDEX idx_kb_embedding ON kb_documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
     CREATE INDEX idx_kb_content_fts ON kb_documents USING gin(to_tsvector('english', content || ' ' || COALESCE(title, '')));
     CREATE INDEX idx_kb_created_at ON kb_documents(created_at);
 
-    -- Query Logs for Analytics
+    -- Try to create vector index if extension is available
+    DO $$
+    BEGIN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_kb_embedding ON kb_documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)';
+    EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'Vector index not created (pgvector not available)';
+    END $$;
+  `);
+
+  // Query Logs for Analytics
+  pgm.sql(`
     CREATE TABLE IF NOT EXISTS kb_query_logs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       shop_id VARCHAR(255) NOT NULL REFERENCES shops(shop_id),
@@ -47,8 +63,10 @@ exports.up = pgm => {
     CREATE INDEX idx_kb_query_logs_shop ON kb_query_logs(shop_id);
     CREATE INDEX idx_kb_query_logs_created_at ON kb_query_logs(created_at);
     CREATE INDEX idx_kb_query_logs_intent ON kb_query_logs(intent_category);
+  `);
 
-    -- Trigger to update updated_at
+  // Trigger to update updated_at
+  pgm.sql(`
     CREATE OR REPLACE FUNCTION update_kb_documents_updated_at()
     RETURNS TRIGGER AS $$
     BEGIN

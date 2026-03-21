@@ -49,6 +49,30 @@ router.get('/', auth_middleware_1.authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Internal error' });
     }
 });
+// Create Generic Store
+router.post('/create', auth_middleware_1.authenticateToken, async (req, res) => {
+    try {
+        const { name, websiteUrl } = req.body;
+        const userId = req.user.id;
+        // Generate a unique ID (e.g. uuid)
+        // For simplicity, we can use a timestamp-random string or import uuid
+        const { v4: uuidv4 } = require('uuid');
+        const shopId = uuidv4();
+        // Insert into DB
+        await (0, db_1.query)(`
+            INSERT INTO shops (shop_id, name, website_url, domain, platform, user_id, onboarding_complete)
+            VALUES ($1, $2, $3, $4, 'generic', $5, true)
+        `, [shopId, name, websiteUrl, websiteUrl, userId]);
+        // Update user's shop_ids (if we store them in user table, though it's better to just query shops table)
+        // Note: Our User table has shop_ids jsonb, we should update it or rely on relational query
+        // Let's rely on relation for listing, but update for session consistency if needed
+        res.status(201).json({ success: true, shopId });
+    }
+    catch (err) {
+        console.error('Error creating store:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 // Get Shopify details for a specific shop
 router.get('/:shopId/shopify-details', auth_middleware_1.authenticateToken, async (req, res) => {
     try {

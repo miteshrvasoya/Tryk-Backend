@@ -3,18 +3,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = (0, express_1.Router)();
+const analytics_service_1 = require("../services/analytics.service");
 router.get('/:storeId/analytics', auth_middleware_1.authenticateToken, async (req, res) => {
     const { storeId } = req.params;
-    // In real implementation, these would be robust SQL queries on 'conversations' and 'messages'
-    // 1. Overview Stats
-    const stats = {
-        totalConversations: 120,
-        aiHandledCount: 100,
-        escalatedCount: 20,
-        avgConfidence: 0.92,
-        messagesProcessed: 543
-    };
-    res.json(stats);
+    try {
+        const stats = await analytics_service_1.AnalyticsService.getDashboardMetrics(storeId);
+        res.json(stats);
+    }
+    catch (error) {
+        console.error('Dashboard Analytics Error:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 router.get('/:storeId/analytics/volume', auth_middleware_1.authenticateToken, async (req, res) => {
     // Mock daily volume

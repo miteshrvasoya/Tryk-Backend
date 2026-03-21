@@ -253,18 +253,11 @@ export class EnhancedChatEngineService {
     await AnalyticsService.logEvent({
       shopId,
       eventType: 'enhanced_chat.processed',
-      data: {
-        intent: routingResult.decision.intent,
-        confidence: routingResult.decision.confidence,
-        toolsUsed: routingResult.toolResults.map(t => t.toolName),
-        processingTime,
-        toolExecutionTimes: routingResult.toolResults.map(t => ({ [t.toolName]: t.executionTime })),
-        safetyValidation: safetyValidation ? {
-          isValid: safetyValidation.isValid,
-          issues: safetyValidation.issues,
-          warnings: safetyValidation.warnings
-        } : null
-      }
+      intent: routingResult.decision.intent,
+      responseTime: processingTime,
+      confidence: routingResult.decision.confidence,
+      handled: !routingResult.decision.shouldEscalate,
+      escalated: routingResult.decision.shouldEscalate
     });
 
     // Log escalation if needed
@@ -272,12 +265,9 @@ export class EnhancedChatEngineService {
       await AnalyticsService.logEvent({
         shopId,
         eventType: 'enhanced_chat.escalated',
-        data: {
-          intent: routingResult.decision.intent,
-          confidence: routingResult.decision.confidence,
-          reason: routingResult.decision.reasoning,
-          processingTime
-        }
+        intent: routingResult.decision.intent,
+        confidence: routingResult.decision.confidence,
+        escalated: true
       });
     }
   }

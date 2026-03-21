@@ -280,7 +280,7 @@ export class KBRetrievalService {
     sourceType: string, 
     limit: number = 50
   ): Promise<KBDocument[]> {
-    const result = await query(`
+    const result = await dbQuery(`
       SELECT 
         id, shop_id, source_type, source_url, title, content, 
         token_count, metadata, created_at, updated_at
@@ -306,7 +306,7 @@ export class KBRetrievalService {
     query: string,
     limit: number = 5
   ): Promise<KBDocument[]> {
-    const result = await query(`
+    const result = await dbQuery(`
       SELECT 
         id, shop_id, source_type, source_url, title, content, 
         token_count, metadata, created_at, updated_at,
@@ -335,7 +335,7 @@ export class KBRetrievalService {
     limit: number = 5
   ): Promise<KBDocument[]> {
     // First get the document's embedding
-    const docResult = await query(`
+    const docResult = await dbQuery(`
       SELECT embedding FROM kb_documents 
       WHERE shop_id = $1 AND id = $2
     `, [shopId, documentId]);
@@ -347,7 +347,7 @@ export class KBRetrievalService {
     const embedding = docResult.rows[0].embedding;
     
     // Find similar documents
-    const result = await query(`
+    const result = await dbQuery(`
       SELECT 
         id, shop_id, source_type, source_url, title, content, 
         token_count, metadata, created_at, updated_at,
@@ -371,7 +371,7 @@ export class KBRetrievalService {
    * Get search statistics for a shop
    */
   static async getSearchStats(shopId: string, days: number = 7): Promise<any> {
-    const result = await query(`
+    const result = await dbQuery(`
       SELECT 
         COUNT(*) as total_searches,
         AVG(CASE WHEN method = 'vector' THEN query_time ELSE NULL END) as avg_vector_time,

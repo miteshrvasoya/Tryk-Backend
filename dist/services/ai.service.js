@@ -12,8 +12,9 @@ const sdk_2 = require("@openrouter/sdk");
 class AIService {
     /**
      * Generates a helpful, natural response using LLM.
+     * Now context-aware with conversation history.
      */
-    static async generateCustomerResponse(shopName, question, context, template) {
+    static async generateCustomerResponse(shopName, question, context, template, history = []) {
         // Choose active provider from config
         const provider = ai_constants_1.AI_CONFIG.activeProvider;
         this.PROVIDER = provider; // Sync state
@@ -23,16 +24,24 @@ class AIService {
             return context || "I'm sorry, I couldn't find an answer to that.";
         }
         try {
+            // Format history
+            const historyText = history.length > 0
+                ? history.map(m => `${m.role === 'user' ? 'Customer' : 'Tryk'}: ${m.content}`).join('\n')
+                : "No previous messages.";
             const instructions = `
 INSTRUCTIONS:
 - Use a friendly, professional tone.
 - Keep the answer concise (under 50 words).
-- If the CONTEXT doesn't contain the answer, say "I'm not sure about that" and nothing else.
+- If the CONTEXT doesn't contain the answer, and conversation history doesn't clarify it, say "I'm not sure about that".
 - Do NOT make up information.
+- Use the CONVERSATION HISTORY to understand pronouns like "it" or "that".
 ${template ? `\nIMPORTANT - USE THIS TEMPLATE STRUCTURE:\n${template}\n(Replace {variables} with actual values if known, or adapt naturally)` : ''}
 `;
             const systemPrompt = `You are 'Tryk', a helpful AI support agent for ${shopName}.
-Your goal is to answer the customer's question naturally using the provided FAQ information.
+Your goal is to answer the customer's question naturally using the provided FAQ information and conversation history.
+
+CONVERSATION HISTORY:
+${historyText}
 
 CONTEXT:
 ${context}
@@ -56,7 +65,7 @@ ${instructions}`;
                     // OpenRouter SDK usage
                     const stream = this.openrouter.callModel({
                         model: ai_constants_1.AI_CONFIG.providers.openrouter.model,
-                        input: `${systemPrompt}\n\nUSER QUESTION: ${question}`, // OpenRouter SDK simple interface
+                        input: `${systemPrompt}\n\nUSER QUESTION: ${question}`,
                     });
                     responseText = await stream.getText();
                     break;

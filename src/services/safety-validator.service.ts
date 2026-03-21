@@ -15,7 +15,7 @@ export interface ValidationResult {
 export interface SafetyRule {
   name: string;
   description: string;
-  validator: (response: string, context: BuiltContext) => boolean;
+  validator: (response: string, context: BuiltContext) => Promise<boolean>;
   severity: 'low' | 'medium' | 'high';
   action: 'warn' | 'sanitize' | 'escalate';
 }
@@ -134,7 +134,7 @@ export class SafetyValidatorService {
   /**
    * Check for hallucination - response contains info not in context
    */
-  private static checkHallucination(response: string, context: BuiltContext): boolean {
+  private static async checkHallucination(response: string, context: BuiltContext): Promise<boolean> {
     const responseLower = response.toLowerCase();
     const contextText = context.combinedText.toLowerCase();
 
@@ -162,7 +162,8 @@ export class SafetyValidatorService {
     }
 
     // Use AI service for deeper hallucination detection
-    return this.performAIHallucinationCheck(response, context);
+    const isRelevant = await this.performAIHallucinationCheck(response, context);
+    return !!isRelevant;
   }
 
   /**
@@ -181,7 +182,7 @@ export class SafetyValidatorService {
   /**
    * Check for policy mismatches
    */
-  private static checkPolicyMismatch(response: string, context: BuiltContext): boolean {
+  private static async checkPolicyMismatch(response: string, context: BuiltContext): Promise<boolean> {
     if (!['shipping_policy', 'return_policy'].includes(context.intent)) {
       return true; // Only check for policy intents
     }
@@ -211,7 +212,7 @@ export class SafetyValidatorService {
   /**
    * Check confidence threshold
    */
-  private static checkConfidenceThreshold(response: string, context: BuiltContext): boolean {
+  private static async checkConfidenceThreshold(response: string, context: BuiltContext): Promise<boolean> {
     const minConfidence = this.getMinConfidenceForIntent(context.intent);
     return context.metadata.confidence >= minConfidence;
   }
@@ -236,7 +237,7 @@ export class SafetyValidatorService {
   /**
    * Check context completeness
    */
-  private static checkContextCompleteness(response: string, context: BuiltContext): boolean {
+  private static async checkContextCompleteness(response: string, context: BuiltContext): Promise<boolean> {
     // For critical intents, ensure we have adequate context
     const criticalIntents = ['order_status', 'product_availability'];
     
@@ -256,7 +257,7 @@ export class SafetyValidatorService {
   /**
    * Check for toxic or harmful content
    */
-  private static checkToxicity(response: string, context: BuiltContext): boolean {
+  private static async checkToxicity(response: string, context: BuiltContext): Promise<boolean> {
     const toxicPatterns = [
       /\b(stupid|idiot|useless|worthless)\b/i,
       /\b(hate|kill|die|harm)\b/i,
@@ -276,7 +277,7 @@ export class SafetyValidatorService {
   /**
    * Check response length
    */
-  private static checkResponseLength(response: string, context: BuiltContext): boolean {
+  private static async checkResponseLength(response: string, context: BuiltContext): Promise<boolean> {
     const wordCount = response.split(/\s+/).length;
     
     // Responses should be concise but complete

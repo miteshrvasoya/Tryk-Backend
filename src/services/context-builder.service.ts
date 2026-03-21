@@ -203,10 +203,10 @@ ${orderData.trackingUrl ? `- Tracking: ${orderData.trackingUrl}` : ''}`;
 
     const kbText = kbData.documents
       .map((doc: KBDocument, i: number) => {
-        const source = `[KB${i + 1}] ${doc.title || 'Untitled'}\n`;
-        source += `Source: ${doc.source_url || 'Internal'}\n`;
-        source += `Content: ${doc.content.substring(0, 300)}${doc.content.length > 300 ? '...' : ''}\n`;
-        return source;
+        let sourceText = `[KB${i + 1}] ${doc.title || 'Untitled'}\n`;
+        sourceText += `Source: ${doc.source_url || 'Internal'}\n`;
+        sourceText += `Content: ${doc.content.substring(0, 300)}${doc.content.length > 300 ? '...' : ''}\n`;
+        return sourceText;
       })
       .join('\n');
 

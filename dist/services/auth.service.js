@@ -23,7 +23,9 @@ const requestShopifyOAuth = async (shop) => {
     // Return the auth URL
     // In a real app we'd construct the URL manually or use the library's beginAuth
     // Simplified manual construction:
-    const redirectUri = `http://localhost:3000/api/auth/oauth/shopify/callback`; // Should be env var
+    // Use standardized BACKEND_URL from environment
+    const backendUrl = process.env.BACKEND_URL || "http://localhost:3000";
+    const redirectUri = `${backendUrl}/api/auth/oauth/shopify/callback`;
     const state = 'nonce'; // Should be random
     const url = `https://${shop}/admin/oauth/authorize?client_id=${process.env.SHOPIFY_API_KEY}&scope=read_products,read_orders&redirect_uri=${redirectUri}&state=${state}`;
     return url;
@@ -79,18 +81,51 @@ const handleShopifyOAuthCallback = async (shop, code) => {
     return { token, shop };
 };
 exports.handleShopifyOAuthCallback = handleShopifyOAuthCallback;
-const register = async (email, password, fullName) => {
+const register = async (email, password, fullName, businessName, businessType, website, shopifyStore) => {
     console.log("Register called");
-    // ... (Previous implementation)
     const hashedPassword = await bcryptjs_1.default.hash(password, 10);
     const check = await (0, db_1.query)('SELECT * FROM users WHERE email = $1', [email]);
     console.log("User found: ", check.rows.length);
     if (check.rows.length > 0)
         throw new Error('User already exists');
     console.log("User not found, creating new user");
-    const result = await (0, db_1.query)(`INSERT INTO users (email, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id, email, full_name`, [email, hashedPassword, fullName]);
-    console.log("User registered: ", result.rows[0]);
-    return result.rows[0];
+    // Start transaction? For simplicity just sequential inserts
+    const result = await (0, db_1.query)(`INSERT INTO users (email, password_hash, full_name, role) VALUES ($1, $2, $3, 'owner') RETURNING id, email, full_name`, [email, hashedPassword, fullName]);
+    const user = result.rows[0];
+    const userId = user.id;
+    console.log("User registered: ", user);
+    // Create Shop if details provided
+    if (website || shopifyStore) {
+        try {
+            const { v4: uuidv4 } = require('uuid');
+            const shopId = uuidv4();
+            // Determine platform and URL
+            let platform = 'generic';
+            let storeUrl = website;
+            let platformStoreId = website;
+            if (shopifyStore) {
+                platform = 'shopify';
+                storeUrl = shopifyStore.startsWith('http') ? shopifyStore : `https://${shopifyStore}`;
+                platformStoreId = shopifyStore.replace('https://', '').replace('http://', '').replace(/\/$/, '');
+            }
+            else if (website) {
+                storeUrl = website.startsWith('http') ? website : `https://${website}`;
+            }
+            if (storeUrl) {
+                await (0, db_1.query)(`
+                    INSERT INTO shops (shop_id, name, website_url, domain, platform, platform_store_id, user_id, onboarding_complete)
+                    VALUES ($1, $2, $3, $3, $4, $5, $6, true)
+                `, [shopId, businessName || fullName + "'s Store", storeUrl, platform, platformStoreId, userId]);
+                // Update User's shop_ids (redundant but kept for JWT consistency)
+                await (0, db_1.query)('UPDATE users SET shop_ids = $1 WHERE id = $2', [JSON.stringify([shopId]), userId]);
+            }
+        }
+        catch (shopErr) {
+            console.error("Failed to auto-create shop during signup:", shopErr);
+            // Don't fail the registration, just log it
+        }
+    }
+    return user;
 };
 exports.register = register;
 const login = async (email, password) => {
@@ -102,6 +137,7 @@ const login = async (email, password) => {
     if (!user)
         throw new Error('Invalid credentials');
     const valid = await bcryptjs_1.default.compare(password, user.password_hash);
+    console.log("Password valid: ", valid);
     if (!valid)
         throw new Error('Invalid credentials');
     // Fetch user's shops
@@ -114,6 +150,7 @@ const login = async (email, password) => {
         shop_ids,
         name: user.full_name || user.email.split('@')[0]
     }, JWT_SECRET, { expiresIn: '24h' });
+    console.log("Token generated: ", token);
     return { user: { id: user.id, email: user.email, role: user.role, shop_ids }, token };
 };
 exports.login = login;

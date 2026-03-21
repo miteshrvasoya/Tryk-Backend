@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FAQScanService = exports.faqScanQueue = void 0;
 const simple_queue_1 = require("../lib/simple-queue");
@@ -42,8 +75,9 @@ exports.faqScanQueue.process(async (job) => {
         // Update DB status to processing
         await (0, db_1.query)('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['processing', jobId]);
         console.log(`Worker: Starting scan for job ${jobId} (${websiteUrl})...`);
+        // 1. Regular Crawl (Scrape Content)
         const scraped = await crawler_service_1.CrawlerService.scanWebsite(websiteUrl);
-        // Save to faq_drafts
+        // Save Crawled Content to faq_drafts
         for (const content of scraped.content) {
             if (content.length < 50)
                 continue;
@@ -52,6 +86,19 @@ exports.faqScanQueue.process(async (job) => {
         VALUES ($1, $2, $3, $4, $5, 'pending_review')
       `, [jobId, shopId, "Extracted Content", content, scraped.url]);
         }
+        // 2. Policy Scraping (NEW)
+        const { PolicyScraperService } = await Promise.resolve().then(() => __importStar(require('./policy-scraper.service')));
+        const policies = await PolicyScraperService.scrapePolicies(websiteUrl);
+        for (const policy of policies) {
+            // We'll store policies as "Answer" and the Policy Type as "Question" for now, 
+            // effectively treating them as pre-approved FAQs or reference docs.
+            // We might want a 'source_type' column later, but for MVP drafts work fine.
+            await (0, db_1.query)(`
+            INSERT INTO faq_drafts (job_id, shop_id, question, answer, source_url, status)
+            VALUES ($1, $2, $3, $4, $5, 'approved') 
+        `, [jobId, shopId, policy.type, policy.content, policy.url]);
+        }
+        console.log(`Worker: Saved ${policies.length} policy pages.`);
         // Update DB status to completed
         await (0, db_1.query)('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
         console.log(`Worker: Job ${jobId} completed.`);

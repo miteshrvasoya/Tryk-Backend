@@ -38,12 +38,13 @@ const authService = __importStar(require("../services/auth.service"));
 const shopify_service_1 = require("../services/shopify.service");
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const db_1 = require("../db");
+// ... other imports
 const router = (0, express_1.Router)();
 // ... Previous routes
 router.post('/signup', async (req, res) => {
     try {
-        const { email, password, fullName } = req.body;
-        const user = await authService.register(email, password, fullName);
+        const { email, password, fullName, businessName, businessType, website, shopifyStore } = req.body;
+        const user = await authService.register(email, password, fullName, businessName, businessType, website, shopifyStore);
         res.status(201).json(user);
     }
     catch (error) {
@@ -192,13 +193,33 @@ router.get('/me', auth_middleware_1.authenticateToken, async (req, res) => {
         const userId = req.user.id;
         // Fetch fresh user data
         const userResult = await (0, db_1.query)('SELECT id, email, full_name, role FROM users WHERE id = $1', [userId]);
+        console.log("User fetched:", userResult.rows);
         if (userResult.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
         const user = userResult.rows[0];
-        // Fetch shops associated with user
-        const shopsResult = await (0, db_1.query)('SELECT shop_id FROM shops WHERE user_id = $1', [userId]);
-        user.shop_ids = shopsResult.rows.map((row) => row.shop_id);
+        console.log("User fetched-2:", user);
+        // Fetch detailed shops associated with user
+        const shopsResult = await (0, db_1.query)(`
+            SELECT shop_id, name, domain, website_url, platform, onboarding_complete, created_at 
+            FROM shops 
+            WHERE user_id = $1
+        `, [userId]);
+        console.log("Shops fetched:", shopsResult.rows);
+        // Helper to format shop strings if stored as JSON or just pass through
+        const shops = shopsResult.rows.map((row) => ({
+            id: row.shop_id,
+            name: row.name,
+            domain: row.domain,
+            website: row.website_url,
+            platform: row.platform,
+            setupCompleted: row.onboarding_complete,
+            createdAt: row.created_at
+        }));
+        console.log("Shops fetched-2:", shops);
+        user.shop_ids = shops.map((s) => s.id);
+        user.shops = shops; // Add full shop objects
+        console.log("User fetched-3:", user);
         res.json(user);
     }
     catch (error) {
