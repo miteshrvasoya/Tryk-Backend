@@ -9,8 +9,32 @@ import { initializePassport } from './config/passport';
 
 dotenv.config();
 
+// Validate required environment variables
+const requiredEnvVars = ['DATABASE_URL'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+  console.error('Missing required environment variables:', missingVars.join(', '));
+  console.error('Please set these environment variables and restart the server');
+  process.exit(1);
+}
+
 // Initialize Passport
 initializePassport();
+
+// Test database connection
+const { query } = require('./db');
+
+async function testDatabaseConnection() {
+  try {
+    await query('SELECT 1');
+    console.log('✅ Database connection successful');
+  } catch (error: any) {
+    console.error('❌ Database connection failed:', error.message);
+    console.error('Please check DATABASE_URL environment variable');
+    process.exit(1);
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -89,23 +113,56 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-
-  console.log("Debugging Routing Issue")
+// Test database and start server
+async function startServer() {
+  await testDatabaseConnection();
   
-  // Debug: Log all registered routes
-  console.log("Registered Routes:");
-  app._router.stack.forEach((r: any) => {
-    if (r.route && r.route.path) {
-      console.log(`[ROUTE] ${Object.keys(r.route.methods).join(',').toUpperCase()} ${r.route.path}`);
-    } else if (r.name === 'router') {
-      // Middleware router (like /api/auth)
-      const pattern = r.regexp.source.replace('^\\', '').replace('\\/?(?=\\/|$)', '').replace('(?=\\/|$)', '');
-      console.log(`[ROUTER] /${pattern}`);
-    }
+  const server = app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+
+    console.log("Debugging Routing Issue")
+    
+    // Debug: Log all registered routes
+    console.log("Registered Routes:");
+    app._router.stack.forEach((middleware: any) => {
+      if (middleware.route) {
+        console.log(`[ROUTER] ${middleware.route.path}`);
+      }
+    });
   });
+
+  // Handle server errors
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use`);
+    } else {
+      console.error('Server error:', error);
+    }
+    process.exit(1);
+  });
+
+  // Handle graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully');
+    server.close(() => {
+      console.log('Process terminated');
+      process.exit(0);
+    });
+  });
+
+  process.on('SIGINT', () => {
+    console.log('SIGINT received, shutting down gracefully');
+    server.close(() => {
+      console.log('Process terminated');
+      process.exit(0);
+    });
+  });
+}
+
+// Start the server
+startServer().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
 
 export default app;
