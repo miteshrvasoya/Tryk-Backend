@@ -39,7 +39,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.KnowledgeIngestionService = void 0;
 const axios_1 = __importDefault(require("axios"));
 const cheerio = __importStar(require("cheerio"));
-const readability_1 = require("@mozilla/readability");
 const db_1 = require("../db");
 const uuid_1 = require("uuid");
 class KnowledgeIngestionService {
@@ -124,17 +123,21 @@ class KnowledgeIngestionService {
             });
             const $ = cheerio.load(response.data);
             const discovered = [];
+            // First pass: Look for highly relevant links
             $('a[href]').each((_, el) => {
                 if (discovered.length >= limit)
                     return false;
                 const href = $(el).attr('href');
                 if (!href)
                     return;
-                const text = $(el).text().toLowerCase();
+                const text = $(el).text().toLowerCase().trim();
                 const hrefLower = href.toLowerCase();
                 // Check if link text or href contains relevant keywords
                 const isRelevant = this.RELEVANT_KEYWORDS.some(keyword => text.includes(keyword) || hrefLower.includes(keyword));
-                if (isRelevant) {
+                // Also check for substantial link text (likely important content)
+                const isSubstantial = text.length > 15 && text.length < 100;
+                const isNotNavigation = !this.isNavigationText(text);
+                if (isRelevant || (isSubstantial && isNotNavigation)) {
                     try {
                         const absUrl = new URL(href, baseUrl).href;
                         const parsed = new URL(absUrl);
@@ -148,6 +151,41 @@ class KnowledgeIngestionService {
                     }
                 }
             });
+            // Second pass: If still need more pages, look for any internal links
+            if (discovered.length < limit) {
+                $('a[href]').each((_, el) => {
+                    if (discovered.length >= limit)
+                        return false;
+                    const href = $(el).attr('href');
+                    if (!href)
+                        return;
+                    const text = $(el).text().toLowerCase().trim();
+                    const hrefLower = href.toLowerCase();
+                    // Skip navigation, social links, and very short text
+                    if (this.isNavigationText(text) || text.length < 5)
+                        return;
+                    try {
+                        const absUrl = new URL(href, baseUrl).href;
+                        const parsed = new URL(absUrl);
+                        // Only include internal links and exclude common non-content pages
+                        if (parsed.hostname === new URL(baseUrl).hostname &&
+                            !hrefLower.includes('#') &&
+                            !hrefLower.includes('tel:') &&
+                            !hrefLower.includes('mailto:') &&
+                            !hrefLower.includes('javascript:') &&
+                            !hrefLower.includes('login') &&
+                            !hrefLower.includes('register') &&
+                            !hrefLower.includes('cart') &&
+                            !hrefLower.includes('checkout')) {
+                            const type = this.inferPageType(text, hrefLower);
+                            discovered.push({ url: absUrl, type });
+                        }
+                    }
+                    catch (e) {
+                        // Invalid URL, skip
+                    }
+                });
+            }
             return [...new Set(discovered)]; // Remove duplicates
         }
         catch (error) {
@@ -166,8 +204,8 @@ class KnowledgeIngestionService {
         });
         // Step 1: Clean HTML aggressively
         const cleanedContent = this.cleanHTML(response.data, pageInfo.url);
-        if (!cleanedContent || cleanedContent.length < 100) {
-            console.warn(`[KB Ingestion] Too little content after cleaning: ${pageInfo.url}`);
+        if (!cleanedContent || cleanedContent.length < 50) {
+            console.warn(`[KB Ingestion] Too little content after cleaning: ${pageInfo.url} (${cleanedContent?.length || 0} chars)`);
             return [];
         }
         // Step 2: Extract title
@@ -188,46 +226,82 @@ class KnowledgeIngestionService {
         }));
     }
     /**
-     * Clean HTML aggressively using Readability algorithm
+     * Clean HTML aggressively using cheerio and custom extraction
      */
     static cleanHTML(html, url) {
         try {
-            // Create a virtual DOM
-            const dom = new DOMParser().parseFromString(html, 'text/html');
-            // Use Readability to extract main content
-            const reader = new readability_1.Readability(dom, {
-                charThreshold: 100,
-                classesToPreserve: ['policy-content', 'faq-content', 'help-content']
-            });
-            const article = reader.parse();
-            if (article && article.textContent) {
-                return article.textContent
-                    .replace(/\s+/g, ' ')
-                    .replace(/\n+/g, ' ')
-                    .trim();
-            }
-            // Fallback: manual cleaning
+            // Use cheerio for Node.js HTML parsing
             const $ = cheerio.load(html);
-            // Remove noise aggressively
-            $('script, style, nav, footer, header, aside, .sidebar, .menu, .navigation, .ads, .cookie-banner').remove();
-            $('img, svg, video, audio').remove();
-            // Extract text from content elements
+            // Remove noise elements aggressively
+            $('script, style, nav, footer, header, aside, .sidebar, .menu, .navigation, .ads, .cookie-banner, .popup, .modal, .overlay').remove();
+            $('img, svg, video, audio, iframe, object, embed').remove();
+            $('form, input, button, select, textarea').remove();
+            $('.social-share, .comments, .related-posts, .advertisement').remove();
+            // Remove elements with common spam/ad classes
+            $('[class*="ad-"], [class*="ads-"], [class*="banner"], [class*="popup"], [class*="modal"], [class*="overlay"]').remove();
+            $('[id*="ad-"], [id*="ads-"], [id*="banner"], [id*="popup"], [id*="modal"]').remove();
+            // Try to find main content areas first
             let content = '';
-            $('h1, h2, h3, h4, h5, h6, p, li, dd, dt').each((_, el) => {
-                const text = $(el).text().trim();
-                if (text.length > 20) {
-                    content += text + '\n\n';
+            // Priority content selectors
+            const contentSelectors = [
+                'main', 'article', '.content', '.main-content', '.page-content',
+                '.post-content', '.entry-content', '.article-content', '.section-content',
+                '.policy-content', '.faq-content', '.help-content', '.documentation',
+                '#content', '#main', '#article', '#post', '.container .row', '.wrapper'
+            ];
+            for (const selector of contentSelectors) {
+                const $element = $(selector);
+                if ($element.length > 0) {
+                    content = this.extractTextFromElement($element);
+                    if (content.length > 200) {
+                        break; // Found substantial content
+                    }
                 }
-            });
-            return content
+            }
+            // If no substantial content found, extract from body
+            if (content.length < 200) {
+                content = this.extractTextFromElement($('body'));
+            }
+            // Final cleanup
+            content = content
                 .replace(/\s+/g, ' ')
                 .replace(/\n+/g, ' ')
+                .replace(/\t+/g, ' ')
+                .replace(/[^\w\s\.\,\!\?\;\:\-\(\)\[\]\{\}\"\'\/\\@#\$%\^&\*\+\=\|\~\`]/g, ' ')
+                .replace(/\s{2,}/g, ' ')
                 .trim();
+            return content;
         }
         catch (error) {
             console.warn(`[KB Ingestion] HTML cleaning failed: ${error.message}`);
             return '';
         }
+    }
+    /**
+     * Extract meaningful text from a cheerio element
+     */
+    static extractTextFromElement($element) {
+        // Simply get all text content from the element and its children
+        const content = $element.text().trim();
+        // Clean up the content
+        return content
+            .replace(/\s+/g, ' ')
+            .replace(/\n+/g, ' ')
+            .replace(/\t+/g, ' ')
+            .trim();
+    }
+    /**
+     * Filter out navigation and menu text
+     */
+    static isNavigationText(text) {
+        const navKeywords = [
+            'menu', 'home', 'about', 'contact', 'login', 'register', 'signup',
+            'cart', 'checkout', 'search', 'browse', 'category', 'products',
+            'facebook', 'twitter', 'instagram', 'linkedin', 'youtube',
+            '©', 'copyright', 'all rights reserved', 'privacy policy', 'terms'
+        ];
+        const lowerText = text.toLowerCase();
+        return navKeywords.some(keyword => lowerText.includes(keyword)) && text.length < 50;
     }
     /**
      * Semantic chunking - split content into logical chunks
@@ -389,5 +463,8 @@ KnowledgeIngestionService.POLICY_PATHS = [
 ];
 KnowledgeIngestionService.RELEVANT_KEYWORDS = [
     'shipping', 'delivery', 'returns', 'refund', 'policy', 'faq', 'help',
-    'contact', 'support', 'about', 'terms', 'privacy', 'order', 'tracking'
+    'contact', 'support', 'about', 'terms', 'privacy', 'order', 'tracking',
+    'service', 'features', 'pricing', 'product', 'how', 'guide', 'tutorial',
+    'documentation', 'blog', 'news', 'announcement', 'update', 'what',
+    'why', 'getting started', 'learn', 'knowledge', 'information', 'details'
 ];
