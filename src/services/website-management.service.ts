@@ -197,17 +197,19 @@ export class WebsiteManagementService {
     console.log(`[WebsiteManagement] Deleted website ${websiteId}`);
   }
 
-  static async ingestWebsiteContent(request: IngestionRequest): Promise<void> {
+  static async ingestWebsiteContent(request: IngestionRequest): Promise<{ count: number, jobId: number | null }> {
     const { shopId, websiteUrl, websiteType, ingestionOptions } = request;
     
     console.log(`[WebsiteManagement] Starting ingestion for ${websiteType} website: ${websiteUrl}`);
 
     try {
       let chunks: KnowledgeChunk[] = [];
+      let finalCount = 0;
+      let finalJobId: number | null = null;
 
       switch (websiteType) {
         case 'shopify':
-          await KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, {
+          const shopifyRes = await KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, {
             ...ingestionOptions,
             prioritizePolicies: true,
             customSelectors: {
@@ -216,7 +218,9 @@ export class WebsiteManagementService {
               exclude: '.admin-panel, .checkout-form'
             }
           });
-          chunks = []; // Shopify ingestion handles storage internally
+          finalCount = shopifyRes.count;
+          finalJobId = shopifyRes.jobId;
+          chunks = Array(finalCount).fill({} as KnowledgeChunk);
           break;
           
         case 'generic':
@@ -225,18 +229,22 @@ export class WebsiteManagementService {
         case 'other':
         default:
           // For generic websites, get the chunks count that were stored
-          const count = await KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, ingestionOptions as any);
+          const res = await KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, ingestionOptions as any);
+          finalCount = res.count;
+          finalJobId = res.jobId;
           
-          console.log(`[WebsiteManagement] Retrieved ${count} stored chunks for ${websiteUrl}`);
+          console.log(`[WebsiteManagement] Retrieved ${finalCount} stored chunks for ${websiteUrl}`);
           
           // Set chunks count based on what was actually stored
-          chunks = Array(count).fill({} as KnowledgeChunk);
+          chunks = Array(finalCount).fill({} as KnowledgeChunk);
           break;
       }
 
       await this.storeIngestionResults(shopId, websiteUrl, websiteType, chunks);
       
       console.log(`[WebsiteManagement] Successfully ingested ${chunks.length} chunks from ${websiteType} website`);
+      
+      return { count: finalCount, jobId: finalJobId };
       
     } catch (error: any) {
       console.error(`[WebsiteManagement] Ingestion failed for ${websiteType}: ${error.message}`);

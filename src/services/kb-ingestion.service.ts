@@ -59,7 +59,7 @@ export class KnowledgeIngestionService {
   /**
    * Main ingestion orchestrator
    */
-  static async ingestWebsite(shopId: string, baseUrl: string, options: IngestionOptions = {}): Promise<number> {
+  static async ingestWebsite(shopId: string, baseUrl: string, options: IngestionOptions = {}): Promise<{ count: number, jobId: number | null }> {
     console.log(`[KB Ingestion] Starting ingestion for ${shopId}: ${baseUrl}`);
     
     const {
@@ -106,11 +106,11 @@ export class KnowledgeIngestionService {
         const storedCount = await this.storeKnowledgeChunks(allChunks, jobId!);
         await query('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
         console.log(`[KB Ingestion] Successfully stored ${storedCount} drafts for ${validShopId}`);
-        return storedCount;
+        return { count: storedCount, jobId };
       } else {
         await query('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
         console.log(`[KB Ingestion] No content chunks generated for ${validShopId}`);
-        return 0;
+        return { count: 0, jobId };
       }
 
     } catch (error: any) {

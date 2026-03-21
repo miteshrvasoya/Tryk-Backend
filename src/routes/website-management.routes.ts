@@ -77,8 +77,8 @@ router.post('/ingest', authenticateToken, async (req, res) => {
   try {
     const { shopId } = (req as any).user;
     const ingestionRequest = req.body;
-    await WebsiteManagementService.ingestWebsiteContent(ingestionRequest);
-    res.json({ message: 'Website ingestion started' });
+    const result = await WebsiteManagementService.ingestWebsiteContent(ingestionRequest);
+    res.json({ message: 'Website ingestion completed', jobId: result.jobId, count: result.count });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
