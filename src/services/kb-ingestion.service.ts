@@ -28,6 +28,11 @@ export interface IngestionOptions {
   maxDepth?: number;
   maxPages?: number;
   prioritizePolicies?: boolean;
+  customSelectors?: {
+    content: string;
+    navigation: string;
+    exclude: string;
+  };
 }
 
 export class KnowledgeIngestionService {

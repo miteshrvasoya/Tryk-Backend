@@ -79,6 +79,7 @@ const template_routes_1 = __importDefault(require("./routes/template.routes"));
 const escalation_routes_1 = __importDefault(require("./routes/escalation.routes"));
 const kb_routes_1 = __importDefault(require("./routes/kb.routes"));
 const enhanced_chat_routes_1 = __importDefault(require("./routes/enhanced-chat.routes"));
+const website_management_routes_1 = __importDefault(require("./routes/website-management.routes"));
 require("./services/faq-scan.service"); // Start workers
 require("./services/analytics.service"); // Start workers
 const oauth_routes_1 = __importDefault(require("./routes/oauth.routes"));
@@ -95,6 +96,7 @@ app.use('/api/templates', template_routes_1.default);
 app.use('/api/kb', kb_routes_1.default);
 app.use('/api/chat/enhanced', enhanced_chat_routes_1.default);
 app.use('/api/escalations', escalation_routes_1.default);
+app.use('/api/websites', website_management_routes_1.default);
 app.use('/api/stores', settings_routes_1.default);
 app.use('/api/chat', chat_routes_1.default);
 app.use('/api/stores', analytics_routes_1.default);

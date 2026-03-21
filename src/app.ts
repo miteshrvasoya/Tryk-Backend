@@ -84,6 +84,7 @@ import templateRoutes from './routes/template.routes';
 import escalationRoutes from './routes/escalation.routes';
 import kbRoutes from './routes/kb.routes';
 import enhancedChatRoutes from './routes/enhanced-chat.routes';
+import websiteManagementRoutes from './routes/website-management.routes';
 import './services/faq-scan.service'; // Start workers
 import './services/analytics.service'; // Start workers
 import oauthRoutes from './routes/oauth.routes';
@@ -102,6 +103,7 @@ app.use('/api/templates', templateRoutes);
 app.use('/api/kb', kbRoutes);
 app.use('/api/chat/enhanced', enhancedChatRoutes);
 app.use('/api/escalations', escalationRoutes);
+app.use('/api/websites', websiteManagementRoutes);
 app.use('/api/stores', settingsRoutes); 
 app.use('/api/chat', chatRoutes);
 app.use('/api/stores', analyticsRoutes); 
