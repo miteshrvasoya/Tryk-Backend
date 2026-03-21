@@ -68,9 +68,18 @@ export class KnowledgeIngestionService {
       prioritizePolicies = true
     } = options;
 
+    let jobId: number | null = null;
+    let validShopId = shopId;
+
     try {
       // Step 1: Ensure shop exists in database (handle temporary IDs)
-      const validShopId = await this.ensureShopExists(shopId);
+      validShopId = await this.ensureShopExists(shopId);
+      
+      const jobResult = await query(
+        `INSERT INTO faq_scan_jobs (shop_id, website_url, status) VALUES ($1, $2, 'processing') RETURNING id`,
+        [validShopId, baseUrl]
+      );
+      jobId = jobResult.rows[0].id;
       
       // Step 2: Extract relevant pages
       const relevantPages = prioritizePolicies 
@@ -92,17 +101,22 @@ export class KnowledgeIngestionService {
 
       console.log(`[KB Ingestion] Generated ${allChunks.length} chunks`);
 
-      // Step 4: Generate embeddings and store
+      // Step 4: Store in faq_drafts
       if (allChunks.length > 0) {
-        const storedCount = await this.storeKnowledgeChunks(allChunks);
-        console.log(`[KB Ingestion] Successfully ingested ${storedCount} chunks for ${validShopId}`);
+        const storedCount = await this.storeKnowledgeChunks(allChunks, jobId!);
+        await query('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
+        console.log(`[KB Ingestion] Successfully stored ${storedCount} drafts for ${validShopId}`);
         return storedCount;
       } else {
+        await query('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
         console.log(`[KB Ingestion] No content chunks generated for ${validShopId}`);
         return 0;
       }
 
     } catch (error: any) {
+      if (jobId) {
+        await query('UPDATE faq_scan_jobs SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3', ['error', error.message, jobId]);
+      }
       console.error(`[KB Ingestion] Ingestion failed: ${error.message}`);
       throw error;
     }
@@ -506,33 +520,22 @@ export class KnowledgeIngestionService {
   /**
    * Generate embeddings for chunks and store in database
    */
-  static async storeKnowledgeChunks(chunks: KnowledgeChunk[]): Promise<number> {
-    console.log(`[KB Ingestion] Generating embeddings for ${chunks.length} chunks`);
+  static async storeKnowledgeChunks(chunks: KnowledgeChunk[], jobId: number): Promise<number> {
+    console.log(`[KB Ingestion] Storing ${chunks.length} chunks into faq_drafts for job ${jobId}`);
     let count = 0;
 
     for (const chunk of chunks) {
       try {
-        // Generate embedding using OpenAI
-        const embedding = await this.generateEmbedding(chunk.content);
-        
-        // Store in database
         await query(`
-          INSERT INTO kb_documents (id, shop_id, source_type, source_url, title, content, embedding, token_count, metadata)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          ON CONFLICT (id) DO UPDATE SET
-            content = EXCLUDED.content,
-            embedding = EXCLUDED.embedding,
-            updated_at = CURRENT_TIMESTAMP
+          INSERT INTO faq_drafts (job_id, shop_id, question, answer, category, source_url, status)
+          VALUES ($1, $2, $3, $4, $5, $6, 'pending_review')
         `, [
-          chunk.id,
+          jobId,
           chunk.shop_id,
-          chunk.source_type,
-          chunk.source_url,
-          chunk.title,
+          chunk.title || 'Extracted Content',
           chunk.content,
-          `[${embedding.join(',')}]`, // Convert array to PostgreSQL vector format
-          chunk.token_count,
-          JSON.stringify(chunk.metadata)
+          chunk.source_type,
+          chunk.source_url
         ]);
         count++;
 

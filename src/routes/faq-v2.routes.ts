@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { FAQScanService } from '../services/faq-scan.service';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { query } from '../db';
+import { KBQueryService } from '../services/kb-query.service';
+import { KnowledgeIngestionService } from '../services/kb-ingestion.service';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
@@ -52,14 +55,34 @@ router.post('/approve-batch', authenticateToken, async (req, res) => {
             approvedIds
         );
 
-        // Move to faqs table
+        // Move to faqs and kb_documents tables
         for (const draft of draftsResult.rows) {
-            // Very simple mapping for now
-            // In real app, generate embedding here
+            const combinedContent = (draft.question && draft.question !== 'Extracted Content') 
+                ? draft.question + "\\n\\n" + draft.answer 
+                : draft.answer;
+                
+            const embedding = await KBQueryService.generateQueryEmbedding(combinedContent);
+            const tokenCount = KnowledgeIngestionService.estimateTokenCount(combinedContent);
+
             await query(`
                 INSERT INTO faqs (shop_id, question, answer, category, source_url, is_active)
                 VALUES ($1, $2, $3, $4, $5, true)
             `, [draft.shop_id, draft.question || "N/A", draft.answer, draft.category, draft.source_url]);
+
+            await query(`
+                INSERT INTO kb_documents (id, shop_id, source_type, source_url, title, content, embedding, token_count, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [
+                uuidv4(),
+                draft.shop_id,
+                draft.category || 'faq',
+                draft.source_url,
+                draft.question,
+                combinedContent,
+                `[${embedding.join(',')}]`,
+                tokenCount,
+                JSON.stringify({ isDraftApproved: true, draftId: draft.id })
+            ]);
 
             // Update draft status
             await query('UPDATE faq_drafts SET status = $1 WHERE id = $2', ['approved', draft.id]);
