@@ -59,7 +59,7 @@ export class KnowledgeIngestionService {
   /**
    * Main ingestion orchestrator
    */
-  static async ingestWebsite(shopId: string, baseUrl: string, options: IngestionOptions = {}): Promise<void> {
+  static async ingestWebsite(shopId: string, baseUrl: string, options: IngestionOptions = {}): Promise<number> {
     console.log(`[KB Ingestion] Starting ingestion for ${shopId}: ${baseUrl}`);
     
     const {
@@ -94,10 +94,12 @@ export class KnowledgeIngestionService {
 
       // Step 4: Generate embeddings and store
       if (allChunks.length > 0) {
-        await this.storeKnowledgeChunks(allChunks);
-        console.log(`[KB Ingestion] Successfully ingested ${allChunks.length} chunks for ${validShopId}`);
+        const storedCount = await this.storeKnowledgeChunks(allChunks);
+        console.log(`[KB Ingestion] Successfully ingested ${storedCount} chunks for ${validShopId}`);
+        return storedCount;
       } else {
         console.log(`[KB Ingestion] No content chunks generated for ${validShopId}`);
+        return 0;
       }
 
     } catch (error: any) {
@@ -504,8 +506,9 @@ export class KnowledgeIngestionService {
   /**
    * Generate embeddings for chunks and store in database
    */
-  static async storeKnowledgeChunks(chunks: KnowledgeChunk[]): Promise<void> {
+  static async storeKnowledgeChunks(chunks: KnowledgeChunk[]): Promise<number> {
     console.log(`[KB Ingestion] Generating embeddings for ${chunks.length} chunks`);
+    let count = 0;
 
     for (const chunk of chunks) {
       try {
@@ -531,11 +534,13 @@ export class KnowledgeIngestionService {
           chunk.token_count,
           JSON.stringify(chunk.metadata)
         ]);
+        count++;
 
       } catch (error: any) {
         console.error(`[KB Ingestion] Failed to store chunk ${chunk.id}: ${error.message}`);
       }
     }
+    return count;
   }
 
   /**

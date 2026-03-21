@@ -224,20 +224,13 @@ export class WebsiteManagementService {
         case 'saas':
         case 'other':
         default:
-          // For generic websites, we need to get the chunks that were stored
-          await KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, ingestionOptions as any);
+          // For generic websites, get the chunks count that were stored
+          const count = await KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, ingestionOptions as any);
           
-          // Retrieve the chunks that were just stored to get accurate count
-          const storedChunks = await query(`
-            SELECT COUNT(*) as count 
-            FROM kb_documents 
-            WHERE shop_id = $1 AND source_url LIKE $2
-          `, [shopId, `%${websiteUrl}%`]);
-          
-          console.log(`[WebsiteManagement] Retrieved ${storedChunks.rows[0].count} stored chunks for ${websiteUrl}`);
+          console.log(`[WebsiteManagement] Retrieved ${count} stored chunks for ${websiteUrl}`);
           
           // Set chunks count based on what was actually stored
-          chunks = Array(storedChunks.rows[0].count).fill({} as KnowledgeChunk);
+          chunks = Array(count).fill({} as KnowledgeChunk);
           break;
       }
 

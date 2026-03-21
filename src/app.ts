@@ -43,9 +43,18 @@ const PORT = process.env.PORT || 3333;
 app.use(express.json()); // JSON parser
 app.use(cookieParser());
 
+app.use((req: any, res: any, next: any) => {
+  console.log("Access Token: ");
+
+  next();
+})
+
 // CORS configuration - must specify exact origin when using credentials
 app.use(cors({
   origin: (origin, callback) => {
+
+    console.log("Origin: ", origin);
+
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
