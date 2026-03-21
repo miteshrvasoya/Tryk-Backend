@@ -92,15 +92,16 @@ class KnowledgeIngestionService {
                 // Check if temporary shop already exists
                 const existingShop = await (0, db_1.query)('SELECT shop_id FROM shops WHERE shop_id = $1', [shopId]);
                 if (existingShop.rows.length === 0) {
-                    // Create temporary shop entry
+                    // Create temporary shop entry with placeholder values for required fields
                     await (0, db_1.query)(`
-            INSERT INTO shops (shop_id, name, website_url, platform, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            INSERT INTO shops (shop_id, name, website_url, platform, access_token, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
           `, [
                         shopId,
                         'Temporary Shop',
                         'https://temp-website.com',
-                        'generic'
+                        'generic',
+                        'temp-token-' + shopId // Placeholder access token
                     ]);
                     console.log(`[KB Ingestion] Created temporary shop: ${shopId}`);
                 }
