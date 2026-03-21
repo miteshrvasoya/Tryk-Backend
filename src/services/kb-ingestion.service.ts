@@ -69,34 +69,83 @@ export class KnowledgeIngestionService {
     } = options;
 
     try {
-      // Step 1: Extract relevant pages
+      // Step 1: Ensure shop exists in database (handle temporary IDs)
+      const validShopId = await this.ensureShopExists(shopId);
+      
+      // Step 2: Extract relevant pages
       const relevantPages = prioritizePolicies 
         ? await this.extractRelevantPages(baseUrl, maxPages)
         : await this.crawlWebsite(baseUrl, maxDepth, maxPages);
 
       console.log(`[KB Ingestion] Found ${relevantPages.length} relevant pages`);
 
-      // Step 2: Process each page
+      // Step 3: Process each page
       const allChunks: KnowledgeChunk[] = [];
-      
-      for (const page of relevantPages) {
+      for (const pageInfo of relevantPages) {
         try {
-          const chunks = await this.processPage(shopId, page);
+          const chunks = await this.processPage(validShopId, pageInfo);
           allChunks.push(...chunks);
         } catch (error: any) {
-          console.warn(`[KB Ingestion] Failed to process ${page.url}: ${error.message}`);
+          console.warn(`[KB Ingestion] Failed to process ${pageInfo.url}: ${error.message}`);
         }
       }
 
       console.log(`[KB Ingestion] Generated ${allChunks.length} chunks`);
 
-      // Step 3: Generate embeddings and store
-      await this.storeKnowledgeChunks(allChunks);
-
-      console.log(`[KB Ingestion] Successfully ingested ${allChunks.length} chunks for ${shopId}`);
+      // Step 4: Generate embeddings and store
+      if (allChunks.length > 0) {
+        await this.storeKnowledgeChunks(allChunks);
+        console.log(`[KB Ingestion] Successfully ingested ${allChunks.length} chunks for ${validShopId}`);
+      } else {
+        console.log(`[KB Ingestion] No content chunks generated for ${validShopId}`);
+      }
 
     } catch (error: any) {
-      console.error(`[KB Ingestion] Failed for ${shopId}: ${error.message}`);
+      console.error(`[KB Ingestion] Ingestion failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure shop exists in database, create temporary entry if needed
+   */
+  private static async ensureShopExists(shopId: string): Promise<string> {
+    // Check if it's a temporary ID
+    if (shopId.startsWith('temp-')) {
+      try {
+        // Check if temporary shop already exists
+        const existingShop = await query('SELECT shop_id FROM shops WHERE shop_id = $1', [shopId]);
+        
+        if (existingShop.rows.length === 0) {
+          // Create temporary shop entry
+          await query(`
+            INSERT INTO shops (shop_id, name, website_url, platform, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [
+            shopId,
+            'Temporary Shop',
+            'https://temp-website.com',
+            'generic'
+          ]);
+          console.log(`[KB Ingestion] Created temporary shop: ${shopId}`);
+        }
+        
+        return shopId;
+      } catch (error: any) {
+        console.error(`[KB Ingestion] Failed to create temporary shop: ${error.message}`);
+        throw error;
+      }
+    }
+    
+    // For non-temporary IDs, verify shop exists
+    try {
+      const existingShop = await query('SELECT shop_id FROM shops WHERE shop_id = $1', [shopId]);
+      if (existingShop.rows.length === 0) {
+        throw new Error(`Shop ${shopId} not found`);
+      }
+      return shopId;
+    } catch (error: any) {
+      console.error(`[KB Ingestion] Shop validation failed: ${error.message}`);
       throw error;
     }
   }
@@ -107,34 +156,30 @@ export class KnowledgeIngestionService {
   static async extractRelevantPages(baseUrl: string, maxPages: number = 25): Promise<Array<{url: string, type: string}>> {
     const origin = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
     const relevantPages: Array<{url: string, type: string}> = [];
+    const seenUrls = new Set<string>();
 
-    // First, check policy pages
+    // First, add predefined policy paths
     for (const policy of this.POLICY_PATHS) {
       if (relevantPages.length >= maxPages) break;
       
-      const url = `${origin}${policy.path}`;
       try {
-        const response = await axios.head(url, {
-          headers: { 'User-Agent': 'TrykBot/1.0 (KB Ingestion)' },
-          timeout: 5000,
-          validateStatus: (status) => status === 200
-        });
-
-        if (response.status === 200) {
-          relevantPages.push({ url, type: policy.type });
+        const policyUrl = new URL(policy.path, origin).href;
+        if (!seenUrls.has(policyUrl)) {
+          relevantPages.push({ url: policyUrl, type: policy.type });
+          seenUrls.add(policyUrl);
         }
-      } catch (error) {
-        // 404 is expected for many policies, just ignore
+      } catch (e) {
+        // Invalid URL, skip
       }
     }
 
     // Then, discover additional relevant pages by crawling homepage
     if (relevantPages.length < maxPages) {
       try {
-        const discoveredPages = await this.discoverRelevantPages(origin, maxPages - relevantPages.length);
+        const discoveredPages = await this.discoverRelevantPages(origin, maxPages - relevantPages.length, seenUrls);
         relevantPages.push(...discoveredPages);
       } catch (error: any) {
-        console.warn(`[KB Ingestion] Failed to discover pages: ${error.message}`);
+        console.warn(`[KB Ingestion] Discovery failed: ${error.message}`);
       }
     }
 
@@ -144,7 +189,7 @@ export class KnowledgeIngestionService {
   /**
    * Discover relevant pages from homepage navigation
    */
-  static async discoverRelevantPages(baseUrl: string, limit: number): Promise<Array<{url: string, type: string}>> {
+  static async discoverRelevantPages(baseUrl: string, limit: number, seenUrls: Set<string> = new Set()): Promise<Array<{url: string, type: string}>> {
     try {
       const response = await axios.get(baseUrl, {
         headers: { 'User-Agent': 'TrykBot/1.0 (KB Ingestion)' },
@@ -178,9 +223,10 @@ export class KnowledgeIngestionService {
             const absUrl = new URL(href, baseUrl).href;
             const parsed = new URL(absUrl);
             
-            if (parsed.hostname === new URL(baseUrl).hostname) {
+            if (parsed.hostname === new URL(baseUrl).hostname && !seenUrls.has(absUrl)) {
               const type = this.inferPageType(text, hrefLower);
               discovered.push({ url: absUrl, type });
+              seenUrls.add(absUrl);
             }
           } catch (e) {
             // Invalid URL, skip
@@ -215,10 +261,12 @@ export class KnowledgeIngestionService {
                 !hrefLower.includes('login') &&
                 !hrefLower.includes('register') &&
                 !hrefLower.includes('cart') &&
-                !hrefLower.includes('checkout')) {
+                !hrefLower.includes('checkout') &&
+                !seenUrls.has(absUrl)) {
               
               const type = this.inferPageType(text, hrefLower);
               discovered.push({ url: absUrl, type });
+              seenUrls.add(absUrl);
             }
           } catch (e) {
             // Invalid URL, skip
