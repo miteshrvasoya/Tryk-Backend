@@ -37,7 +37,7 @@ async function testDatabaseConnection() {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3333;
 
 // Middleware
 app.use(express.json()); // JSON parser
