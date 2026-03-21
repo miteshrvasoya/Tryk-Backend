@@ -69,14 +69,24 @@ class WebsiteManagementService {
                             exclude: '.admin-panel, .checkout-form'
                         }
                     });
+                    chunks = []; // Shopify ingestion handles storage internally
                     break;
                 case 'generic':
                 case 'blog':
                 case 'saas':
                 case 'other':
                 default:
+                    // For generic websites, we need to get the chunks that were stored
                     await kb_ingestion_service_1.KnowledgeIngestionService.ingestWebsite(shopId, websiteUrl, ingestionOptions);
-                    chunks = [];
+                    // Retrieve the chunks that were just stored to get accurate count
+                    const storedChunks = await (0, db_1.query)(`
+            SELECT COUNT(*) as count 
+            FROM kb_documents 
+            WHERE shop_id = $1 AND source_url LIKE $2
+          `, [shopId, `%${websiteUrl}%`]);
+                    console.log(`[WebsiteManagement] Retrieved ${storedChunks.rows[0].count} stored chunks for ${websiteUrl}`);
+                    // Set chunks count based on what was actually stored
+                    chunks = Array(storedChunks.rows[0].count).fill({});
                     break;
             }
             await this.storeIngestionResults(shopId, websiteUrl, websiteType, chunks);
