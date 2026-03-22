@@ -36,15 +36,15 @@ export class KBRetrievalService {
     try {
       let sql = `
         SELECT 
-          id, shop_id, source_type, source_url, title, content, 
+          id, shop_id, user_id, source_type, source_url, title, content, 
           token_count, metadata, created_at, updated_at,
           1 - (embedding <=> $1::vector) as similarity
         FROM kb_documents 
-        WHERE shop_id = $2 
+        WHERE (shop_id = $2 OR (shop_id IS NULL AND user_id = $4))
           AND 1 - (embedding <=> $1::vector) >= $3
       `;
 
-      const params: any[] = [`[${queryEmbedding.join(',')}]`, shopId, minSimilarity];
+      const params: any[] = [`[${queryEmbedding.join(',')}]`, shopId, minSimilarity, (options as any).userId];
 
       // Add source type filter if specified
       if (sourceTypes && sourceTypes.length > 0) {
@@ -92,16 +92,16 @@ export class KBRetrievalService {
     try {
       let sql = `
         SELECT 
-          id, shop_id, source_type, source_url, title, content, 
+          id, shop_id, user_id, source_type, source_url, title, content, 
           token_count, metadata, created_at, updated_at,
           ts_rank(to_tsvector('english', content || ' ' || COALESCE(title, '')), 
                    websearch_to_tsquery('english', $2)) as rank
         FROM kb_documents 
-        WHERE shop_id = $1 
+        WHERE (shop_id = $1 OR (shop_id IS NULL AND user_id = $3))
           AND to_tsvector('english', content || ' ' || COALESCE(title, '')) @@ websearch_to_tsquery('english', $2)
       `;
 
-      const params: any[] = [shopId, query];
+      const params: any[] = [shopId, query, (options as any).userId];
 
       // Add source type filter if specified
       if (sourceTypes && sourceTypes.length > 0) {

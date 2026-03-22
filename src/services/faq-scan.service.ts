@@ -8,17 +8,18 @@ export class FAQScanService {
   /**
    * Starts a new website scan job.
    */
-  static async startScan(shopId: string, websiteUrl: string, crawlDepth: number = 3) {
+  static async startScan(userId: number, shopId: string | null, websiteUrl: string, crawlDepth: number = 3) {
     // 1. Create job entry in DB
     const result = await query(
-      `INSERT INTO faq_scan_jobs (shop_id, website_url, status) VALUES ($1, $2, 'pending') RETURNING id`,
-      [shopId, websiteUrl]
+      `INSERT INTO faq_scan_jobs (user_id, shop_id, website_url, status) VALUES ($1, $2, $3, 'pending') RETURNING id`,
+      [userId, shopId, websiteUrl]
     );
     const jobId = result.rows[0].id;
 
     // 2. Queue the job
     await faqScanQueue.add('scan', {
       jobId,
+      userId,
       shopId,
       websiteUrl,
       crawlDepth
@@ -41,7 +42,7 @@ export class FAQScanService {
 
 // Initialize Worker Logic
 faqScanQueue.process(async (job) => {
-  const { jobId, shopId, websiteUrl } = job.data;
+  const { jobId, userId, shopId, websiteUrl } = job.data;
 
   try {
     // Update DB status to processing
@@ -57,9 +58,9 @@ faqScanQueue.process(async (job) => {
       if (content.length < 50) continue;
       
       await query(`
-        INSERT INTO faq_drafts (job_id, shop_id, question, answer, source_url, status)
-        VALUES ($1, $2, $3, $4, $5, 'pending_review')
-      `, [jobId, shopId, "Extracted Content", content, scraped.url]);
+        INSERT INTO faq_drafts (job_id, user_id, shop_id, question, answer, source_url, status)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending_review')
+      `, [jobId, userId, shopId, "Extracted Content", content, scraped.url]);
     }
 
     // 2. Policy Scraping (NEW)
@@ -71,9 +72,9 @@ faqScanQueue.process(async (job) => {
         // effectively treating them as pre-approved FAQs or reference docs.
         // We might want a 'source_type' column later, but for MVP drafts work fine.
         await query(`
-            INSERT INTO faq_drafts (job_id, shop_id, question, answer, source_url, status)
-            VALUES ($1, $2, $3, $4, $5, 'approved') 
-        `, [jobId, shopId, policy.type, policy.content, policy.url]);
+            INSERT INTO faq_drafts (job_id, user_id, shop_id, question, answer, source_url, status)
+            VALUES ($1, $2, $3, $4, $5, $6, 'approved') 
+        `, [jobId, userId, shopId, policy.type, policy.content, policy.url]);
     }
     
     console.log(`Worker: Saved ${policies.length} policy pages.`);

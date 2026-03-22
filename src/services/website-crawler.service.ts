@@ -32,7 +32,7 @@ export class WebsiteCrawlerService {
     '/contact'
   ];
 
-  static async startCrawl(websiteId: string, userId: number, baseUrl: string) {
+  static async startCrawl(websiteId: string, userId: number, baseUrl: string, jobId?: number) {
     try {
       console.log(`[Crawler] Starting background crawl for website ${websiteId} for user ${userId} (${baseUrl})`);
       
@@ -94,7 +94,7 @@ export class WebsiteCrawlerService {
       const uniqueChunks = this.deduplicateChunks(results);
       
       for (const chunk of uniqueChunks) {
-         await this.storeChunk(userId, websiteId, chunk);
+         await this.storeChunk(userId, websiteId, chunk, jobId);
       }
 
       // Mark completed
@@ -103,10 +103,17 @@ export class WebsiteCrawlerService {
         pages_count: pagesCount,
         last_crawled_at: new Date()
       });
+
+      if (jobId) {
+          await query('UPDATE faq_scan_jobs SET status = $1, updated_at = NOW() WHERE id = $2', ['completed', jobId]);
+      }
       
     } catch (error: any) {
       console.error(`[Crawler] Critical error during crawl for ${websiteId}:`, error);
       await WebsiteManagementService.updateWebsiteStatus(websiteId, { status: 'failed' });
+      if (jobId) {
+          await query('UPDATE faq_scan_jobs SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3', ['error', error.message, jobId]);
+      }
     }
   }
 
@@ -214,25 +221,40 @@ export class WebsiteCrawlerService {
       return chunks;
   }
 
-  private static async storeChunk(userId: number, websiteId: string, chunk: ScrapedChunk) {
+  private static async storeChunk(userId: number, websiteId: string, chunk: ScrapedChunk, jobId?: number) {
       if (!chunk.content || chunk.content.length < 20) return;
       
       try {
-          // Assume fake generation for embedding vectors or we map to null if no vector extension
-          await query(`
-              INSERT INTO kb_documents 
-              (user_id, website_id, source_type, source_url, title, content, token_count, metadata)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          `, [
-              userId,
-              websiteId,
-              this.inferSourceType(chunk.sourceUrl),
-              chunk.sourceUrl,
-              `${chunk.title} - ${chunk.heading}`,
-              chunk.content,
-              chunk.tokenCount,
-              JSON.stringify({ heading: chunk.heading })
-          ]);
+          if (jobId) {
+              // Store as draft for review
+              await query(`
+                  INSERT INTO faq_drafts 
+                  (job_id, user_id, question, answer, source_url, status)
+                  VALUES ($1, $2, $3, $4, $5, 'pending_review')
+              `, [
+                  jobId,
+                  userId,
+                  chunk.heading || chunk.title,
+                  chunk.content,
+                  chunk.sourceUrl
+              ]);
+          } else {
+              // Direct store (old behavior or if no job)
+              await query(`
+                  INSERT INTO kb_documents 
+                  (user_id, website_id, source_type, source_url, title, content, token_count, metadata)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              `, [
+                  userId,
+                  websiteId,
+                  this.inferSourceType(chunk.sourceUrl),
+                  chunk.sourceUrl,
+                  `${chunk.title} - ${chunk.heading}`,
+                  chunk.content,
+                  chunk.tokenCount,
+                  JSON.stringify({ heading: chunk.heading })
+              ]);
+          }
       } catch (e: any) {
           console.error(`[Crawler] Failed to store chunk for ${chunk.sourceUrl}:`, e.message);
       }

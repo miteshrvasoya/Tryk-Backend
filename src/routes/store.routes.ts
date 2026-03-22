@@ -16,6 +16,23 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
+// Get all FAQs for a shop or user
+router.get('/:shopId/faqs', authenticateToken, async (req, res) => {
+  try {
+    const { shopId } = req.params;
+    const userId = (req as any).user.id;
+    
+    // Fetch by shopId OR userId to ensure decoupled knowledge shows up
+    const result = await query(
+      'SELECT * FROM faqs WHERE shop_id = $1 OR user_id = $2 ORDER BY created_at DESC',
+      [shopId, userId]
+    );
+    res.json(result.rows);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create Generic Store
 router.post('/create', authenticateToken, async (req, res) => {
     try {

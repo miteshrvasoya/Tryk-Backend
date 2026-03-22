@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { WebsiteManagementService } from '../services/website-management.service';
 import { WebsiteCrawlerService } from '../services/website-crawler.service';
 import { authenticateToken } from '../middleware/auth.middleware';
+import { query } from '../db';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.post('/ingest', authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized user' });
-    const { websiteUrl, websiteId } = req.body;
+    const { websiteUrl, websiteId, shopId } = req.body;
     
     const targetUrl = websiteUrl; // from request or looking up by id
 
@@ -55,10 +56,21 @@ router.post('/ingest', authenticateToken, async (req, res) => {
         await WebsiteManagementService.updateWebsiteStatus(id, { status: 'processing' });
     }
 
-    // Trigger crawl async
-    WebsiteCrawlerService.startCrawl(id, userId, targetUrl).catch(console.error);
+    // Create a scan job record for tracking and review
+    const jobResult = await query(
+        `INSERT INTO faq_scan_jobs (user_id, shop_id, website_url, status) VALUES ($1, $2, $3, 'processing') RETURNING id`,
+        [userId, shopId || null, targetUrl]
+    );
+    const jobId = jobResult.rows[0].id;
 
-    res.json({ message: 'Website ingestion started', websiteId: id });
+    // Trigger crawl async with jobId so it populates drafts
+    WebsiteCrawlerService.startCrawl(id, userId, targetUrl, parseInt(jobId)).catch(console.error);
+
+    res.json({ 
+        message: 'Website ingestion started', 
+        websiteId: id,
+        jobId: jobId
+    });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -92,22 +104,27 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Get ingestion history (mocked for frontend backward compatibility)
+// Get ingestion history (actual scan jobs)
 router.get('/ingestion/history', authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized user' });
-    const websites = await WebsiteManagementService.getUserWebsites(userId);
     
-    const history = websites.filter(w => w.status === 'completed' || w.pages_count > 0).map(w => ({
-        id: w.id,
-        website_url: w.website_url,
-        chunks_count: w.pages_count, // rough mapping
-        status: w.status,
-        created_at: w.last_crawled_at || w.updated_at
-    }));
+    // Fetch latest scan jobs for this user
+    const result = await query(`
+        SELECT 
+            j.id, 
+            j.website_url, 
+            j.status, 
+            j.created_at,
+            (SELECT COUNT(*) FROM faq_drafts WHERE job_id = j.id) as chunks_count
+        FROM faq_scan_jobs j
+        WHERE j.user_id = $1
+        ORDER BY j.created_at DESC
+        LIMIT 20
+    `, [userId]);
     
-    res.json(history);
+    res.json(result.rows);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
