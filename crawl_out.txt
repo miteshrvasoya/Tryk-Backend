@@ -1,0 +1,81 @@
+﻿Testing crawler on mailos.in...
+Using shopId: template_shop
+Registered websiteId: 1bf105d6-35d1-4cd8-8ae1-85180e5f67d3
+Starting crawl...
+[Crawler] Starting background crawl for website 1bf105d6-35d1-4cd8-8ae1-85180e5f67d3 (https://www.mailos.in/)
+[Crawler] Finished scraping. Found 12 chunks from 1 pages.
+Crawl finished. Checking kb_documents...
+
+Found 12 documents.
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Drowning in 200 emails a day?
+Len: 510 | Tokens: 128
+Snippet: MailOS automatically detects important emails, groups the rest, and shows one clean daily summary . Get Inbox Clarity See how it works Read-only by de...
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Built for trust. Read-only by default.
+Len: 286 | Tokens: 72
+Snippet: MailOS works on top of Gmail. You stay in Gmail ÔÇö we add clarity. Read-only access We only read email metadata Cannot send emails No outbound access e...
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Stop missing important emails in the noise.
+Len: 301 | Tokens: 76
+Snippet: The workflow is simple: detect what matters, group the rest, and scan one summary. Inbox Chaos 187 unread emails Missed 3 important messages 45 min sc...
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - What MailOS actually does
+Len: 60 | Tokens: 15
+Snippet: No new inbox. No new workflow. Just clarity on top of Gmail....
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Detect Important Emails
+Len: 58 | Tokens: 15
+Snippet: Surfaces time-sensitive messages so they don't get buried....
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Group Similar Emails
+Len: 54 | Tokens: 14
+Snippet: Clusters newsletters, promotions, alerts, and updates....
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Extract Tasks
+Len: 54 | Tokens: 14
+Snippet: Detects action items and deadlines from email content....
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Daily Inbox Digest
+Len: 58 | Tokens: 15
+Snippet: A scannable summary with sections, counts, and highlights....
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Four steps to inbox clarity.
+Len: 255 | Tokens: 64
+Snippet: Short, simple, and designed for high-volume inboxes. 1 Connect Gmail Read-only access, one click 2 MailOS analyzes emails AI classifies every message ...
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - MailOS is not another email client.
+Len: 244 | Tokens: 61
+Snippet: It works on top of Gmail . You keep using Gmail ÔÇö MailOS adds clarity so you stop missing what matters. No migration. No new inbox to learn. Detect Im...
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Built in public.
+Len: 356 | Tokens: 89
+Snippet: Early beta users are already using MailOS to stay on top of high-volume inboxes. ­ƒÆ╝ Founder inbox ÔåÆ one daily scan. See what matters without scrolling...
+
+---------------------------------
+URL: https://www.mailos.in
+Title: MailOS ÔÇö Stop Missing Important Emails in 200+ Daily Messages - Ready for inbox clarity?
+Len: 130 | Tokens: 33
+Snippet: Stop missing important emails. Get one clean daily summary. Join MailOS Beta Read-only by default. We never send or delete emails....

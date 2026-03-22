@@ -11,7 +11,7 @@ const shopify = shopifyApi({
     apiKey: process.env.SHOPIFY_API_KEY,
     apiSecretKey: process.env.SHOPIFY_API_SECRET || '',
     scopes: ['read_products', 'read_orders', 'read_customers'],
-    hostName: 'localhost:3000', // Should be external URL in prod
+    hostName: 'localhost:3333', // Should be external URL in prod
     apiVersion: LATEST_API_VERSION, 
     isEmbeddedApp: false, 
 });
@@ -21,7 +21,7 @@ export const requestShopifyOAuth = async (shop: string) => {
     // In a real app we'd construct the URL manually or use the library's beginAuth
     // Simplified manual construction:
     // Use standardized BACKEND_URL from environment
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:3000";
+    const backendUrl = process.env.BACKEND_URL || "http://localhost:3333";
     const redirectUri = `${backendUrl}/api/auth/oauth/shopify/callback`;
 
     const state = 'nonce'; // Should be random

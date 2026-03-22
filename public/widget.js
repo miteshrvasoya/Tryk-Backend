@@ -1,7 +1,7 @@
 (function() {
     console.log('Tryk Widget: Initializing...');
     // Configuration
-    let API_BASE = 'http://localhost:3000/api'; 
+    let API_BASE = 'http://localhost:3333/api'; 
     let WIDGET_KEY = null;
 
     // Check for global config (TrykConfig)

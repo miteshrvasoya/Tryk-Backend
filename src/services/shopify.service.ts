@@ -48,14 +48,14 @@ class RateLimiter {
 
 const shopifyLimiter = new RateLimiter();
 
-const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+const backendUrl = process.env.BACKEND_URL || 'http://localhost:3333';
 const urlObj = new URL(backendUrl);
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || '',
   scopes: process.env.SHOPIFY_SCOPES ? process.env.SHOPIFY_SCOPES.split(',') : ['read_orders', 'read_products', 'read_inventory'],
-  hostName: urlObj.host, // e.g. 'localhost:3000' or 'tryk-backend.onrender.com'
+  hostName: urlObj.host, // e.g. 'localhost:3333' or 'tryk-backend.onrender.com'
   hostScheme: urlObj.protocol.replace(':', '') as 'http' | 'https',
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: false,
