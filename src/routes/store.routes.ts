@@ -203,4 +203,19 @@ router.post('/:storeId/shopify-sync', authenticateToken, async (req, res) => {
     }
 });
 
+// Disconnect Shopify
+router.post('/:storeId/disconnect-shopify', authenticateToken, async (req, res) => {
+    const { storeId } = req.params;
+    
+    try {
+        await query(
+            "UPDATE shops SET access_token = '', platform = 'generic' WHERE shop_id = $1",
+            [storeId]
+        );
+        res.json({ success: true, message: 'Shopify disconnected' });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 export default router;

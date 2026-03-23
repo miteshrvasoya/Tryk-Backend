@@ -15,15 +15,31 @@ router.get('/:storeId/settings', authenticateToken, async (req, res) => {
 // Update Settings
 router.put('/:storeId/settings', authenticateToken, async (req, res) => {
     const { storeId } = req.params;
-    const { settings } = req.body; // { botName, tone, escalationEmail, timezone }
+    const { settings, name } = req.body; 
     
     try {
+        // First, handle the shop name if provided
+        if (name) {
+            await query('UPDATE shops SET name = $1 WHERE shop_id = $2', [name, storeId]);
+        }
+
+        // Then, merge the specifically provided settings into the existing settings JSONB
+        // Using the || operator in PG for JSONB merge
         const result = await query(
-            'UPDATE shops SET settings = $1 WHERE shop_id = $2 RETURNING settings',
-            [settings, storeId]
+            `UPDATE shops 
+             SET settings = settings || $1::jsonb 
+             WHERE shop_id = $2 
+             RETURNING settings, name`,
+            [settings || {}, storeId]
         );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Store not found' });
+        }
+        
         res.json(result.rows[0]);
     } catch (err: any) {
+        console.error('Error updating settings:', err);
         res.status(500).json({ error: err.message });
     }
 });
